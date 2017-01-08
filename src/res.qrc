@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/res">
+        <file>dr_stein_16x16.png</file>
+    </qresource>
+</RCC>
