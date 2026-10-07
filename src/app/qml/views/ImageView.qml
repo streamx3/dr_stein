@@ -167,10 +167,21 @@ Item {
                         }
                         StCheck { text: "Verify the image's checksums before writing anything"; checked: view.controller.restoreVerifyFirst; onToggled: view.controller.restoreVerifyFirst = checked }
                         StCheck { text: "Allow a smaller target (writes what fits; the tail is lost)"; checked: view.controller.restoreAllowSmaller; onToggled: view.controller.restoreAllowSmaller = checked }
-                        StCheck {
-                            text: "Write only the non-zero ranges"
-                            sublabel: "Much faster on a slow drive and gentler on flash: ranges that are zero in the image are left as they are on the target. The filesystems come back complete, but old bytes stay recoverable in free space and in gaps between partitions, and a stale filesystem signature in such a gap can confuse other tools. Off, the target becomes byte-identical to the image."
-                            checked: view.controller.restoreSkipZeros; onToggled: view.controller.restoreSkipZeros = checked
+                        ColumnLayout { Layout.fillWidth: true; spacing: 4
+                            Kicker { text: "Zero ranges of the image"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
+                            StSegmented {
+                                model: [{ label: "Write them", value: "write" }, { label: "Zero free space only", value: "gaps" }, { label: "Skip them", value: "skip" }]
+                                currentValue: view.controller.restoreZeros
+                                onPicked: (v) => view.controller.restoreZeros = v
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: view.controller.restoreZeros === "write" ? "The target becomes byte-identical to the image. Slow on a slow drive: every zero range is written."
+                                    : view.controller.restoreZeros === "gaps" ? "Zeros are written only where the image's partition table has free space (gaps, the tail), never inside a partition of any type, so no stale signature survives in a gap. Inside partitions the filesystems come back complete and old bytes stay in their free space. Without a table the library understands, nothing is zeroed."
+                                    : "Nothing is written where the image is zero: fastest and gentlest on flash. Old bytes stay recoverable in free space and gaps, and a stale filesystem signature in a gap can confuse other tools."
+                                font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WordWrap
+                            }
+                            Text { Layout.fillWidth: true; visible: view.controller.restoreZeroPlanText.length > 0; text: view.controller.restoreZeroPlanText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(300); wrapMode: Text.WordWrap }
                         }
                         Text { Layout.fillWidth: true; visible: view.controller.restoreMessage.length > 0; text: view.controller.restoreMessage; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.warning; wrapMode: Text.WordWrap }
                         RowLayout { spacing: 6; Layout.topMargin: Theme.space3

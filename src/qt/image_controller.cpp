@@ -231,12 +231,15 @@ void ImageController::start() {
 void ImageController::reloadRestoreScope() {
     m_restoreScope.reset();
     m_restoreScopeError.clear();
+    m_zeroPlanText.clear();
     if (m_restore.image.empty()) return;
     std::error_code ec;
     if (!std::filesystem::is_regular_file(m_restore.image, ec)) return;
     auto scope = core::restoreScopeOf(m_restore.image, m_restore.passphrase);
     if (scope) m_restoreScope = *scope;
     else m_restoreScopeError = qs(scope.error().message());
+    // The zero plan reads the chunk map and, for the partition-aware mode, the image's table: cheap, no payload.
+    if (m_restoreScope && m_restoreScope->unlocked) m_zeroPlanText = qs(core::describeZeroPlan(m_restore).summary);
 }
 
 QString ImageController::restoreScopeText() const {
@@ -358,8 +361,17 @@ void ImageController::setRestoreAllowSmaller(bool on) {
     m_restore.allowSmaller = on;
     Q_EMIT formChanged();
 }
-void ImageController::setRestoreSkipZeros(bool on) {
-    m_restore.skipZeroChunks = on;
+QString ImageController::restoreZeros() const {
+    switch (m_restore.zeros) {
+    case stein::image::ZeroPolicy::Skip: return "skip";
+    case stein::image::ZeroPolicy::SkipInside: return "gaps";
+    default: return "write";
+    }
+}
+
+void ImageController::setRestoreZeros(const QString& mode) {
+    m_restore.zeros = mode == "skip" ? stein::image::ZeroPolicy::Skip : mode == "gaps" ? stein::image::ZeroPolicy::SkipInside : stein::image::ZeroPolicy::Write;
+    reloadRestoreScope();
     Q_EMIT formChanged();
 }
 void ImageController::setRestoreImagePath(const QString& p) {

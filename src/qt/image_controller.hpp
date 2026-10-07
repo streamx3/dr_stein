@@ -55,7 +55,8 @@ class ImageController : public QObject {
     Q_PROPERTY(QVariantMap restoreTarget READ restoreTarget NOTIFY formChanged)
     Q_PROPERTY(bool restoreVerifyFirst READ restoreVerifyFirst WRITE setRestoreVerifyFirst NOTIFY formChanged)
     Q_PROPERTY(bool restoreAllowSmaller READ restoreAllowSmaller WRITE setRestoreAllowSmaller NOTIFY formChanged)
-    Q_PROPERTY(bool restoreSkipZeros READ restoreSkipZeros WRITE setRestoreSkipZeros NOTIFY formChanged)
+    Q_PROPERTY(QString restoreZeros READ restoreZeros WRITE setRestoreZeros NOTIFY formChanged)   // "write" | "gaps" | "skip"
+    Q_PROPERTY(QString restoreZeroPlanText READ restoreZeroPlanText NOTIFY formChanged)        // computed from the chunk map
     Q_PROPERTY(QString restoreImagePath READ restoreImagePath WRITE setRestoreImagePath NOTIFY formChanged)
     Q_PROPERTY(bool canRestore READ canRestore NOTIFY formChanged)
     Q_PROPERTY(QString restoreMessage READ restoreMessage NOTIFY formChanged)
@@ -125,8 +126,9 @@ public:
     void setRestoreVerifyFirst(bool on);
     bool restoreAllowSmaller() const { return m_restore.allowSmaller; }
     void setRestoreAllowSmaller(bool on);
-    bool restoreSkipZeros() const { return m_restore.skipZeroChunks; }
-    void setRestoreSkipZeros(bool on);
+    QString restoreZeros() const;
+    void setRestoreZeros(const QString& mode);
+    QString restoreZeroPlanText() const { return m_zeroPlanText; }
     QString restoreImagePath() const { return QString::fromStdString(m_restore.image.string()); }
     void setRestoreImagePath(const QString& p);
     bool canRestore() const;
@@ -169,6 +171,7 @@ private:
     QString m_restoreTargetId;             // "<source id>" for a device, "<source id>#<partition index>" for a partition
     std::optional<core::RestoreScope> m_restoreScope;
     QString m_restoreScopeError;
+    QString m_zeroPlanText;
     int m_scopeIndex = 0;
     int m_verifyLevel = 3;
     QVariantList m_keys;

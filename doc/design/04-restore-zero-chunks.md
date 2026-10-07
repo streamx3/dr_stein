@@ -174,3 +174,29 @@ Keep "write zeros" as the default (correct for strangers' disks), offer "write o
 the non-zero ranges" as it is now, and in the libstein session make it region-aware:
 zero the gaps and metadata areas always, skip zeros inside partitions when asked.
 With that, the skip option can become the default for removable drives.
+
+## Implemented (2026-10-08): region-aware zero policy in libstein
+
+`image::ZeroPolicy { Write, Skip, SkipInside }` on `CopyOptions` and `RestoreOptions`
+(`writeZeroChunks = false` and `skipZeroChunksOnWrite` remain as aliases of `Skip`).
+
+- **Keep regions** (`image::keepRegionsOf(device)`): every entry of the partition
+  table the image carries, whatever its type (unknown GUIDs, extended containers,
+  APM map entries included), clipped to the device. No table, an unreadable table,
+  or a table type the library does not parse: the whole device is kept. What cannot
+  be read as a table is never treated as free space.
+- **Split at the boundary**: a zero chunk that straddles a partition edge is written
+  only outside the partition (`regionsOutside`), sector-exact; the test checks the
+  last byte inside and the first byte outside.
+- **Plan first** (`image::planZeroWrites(image, options)`): from the chunk map, with
+  no payload read, how many bytes are zero chunks, how many will be written and how
+  many kept, plus the keep regions and the reason ("GPT, 2 partitions"). The copy
+  stats report the same two numbers afterwards (`zeroBytesWritten`,
+  `zeroBytesSkipped`), and the test asserts plan == outcome.
+- CLI: `stein image restore … --zeros write|gaps|skip` prints the plan before
+  writing. App: "Zero ranges of the image" (Write them / Zero free space only /
+  Skip them) in the Restore form, with the plan line under it and in the
+  confirmation and report.
+
+Not changed: the default stays `Write` (byte-identical). Making `gaps` the default
+for removable targets is a one-line policy choice once you are happy with it.

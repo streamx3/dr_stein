@@ -293,7 +293,11 @@ TEST_CASE("skipping zero chunks leaves the target's old bytes in the image's zer
     REQUIRE(target->writeAt(0, junk));
     RestoreForm rf;
     rf.image = form.destination;
-    rf.skipZeroChunks = true;
+    rf.zeros = image::ZeroPolicy::Skip;
+    const auto words = describeZeroPlan(rf);
+    CHECK(words.ok);
+    CHECK(words.plan.toWrite == 0);
+    CHECK(words.summary.find("left untouched") != std::string::npos);
     Report rreport("Restore");
     auto r = runRestore(rf, *target, progress, rreport);
     REQUIRE(r);
@@ -305,7 +309,32 @@ TEST_CASE("skipping zero chunks leaves the target's old bytes in the image's zer
     const ByteCount gap = disk.part1Offset + disk.part1Size + 64 * KiB;
     REQUIRE(target->readAt(gap, a));
     CHECK(a[0] == std::byte{0xAA});                             // zero range left alone
-    rf.skipZeroChunks = false;
+    // Gaps only: the inter-partition gap is zeroed, zero ranges inside partition 1 (ext4 free space) are kept.
+    REQUIRE(target->writeAt(0, junk));
+    rf.zeros = image::ZeroPolicy::SkipInside;
+    const auto gapsWords = describeZeroPlan(rf);
+    CHECK(gapsWords.ok);
+    CHECK(gapsWords.plan.keep.tableUnderstood);
+    CHECK(gapsWords.plan.keep.regions.size() == 2);
+    CHECK(gapsWords.plan.toWrite > 0);
+    CHECK(gapsWords.plan.toSkip > 0);
+    CHECK(gapsWords.summary.find("GPT, 2 partitions") != std::string::npos);
+    Report rreport3("Restore");
+    auto g = runRestore(rf, *target, progress, rreport3);
+    REQUIRE(g);
+    CHECK(g->stats.zeroBytesWritten == gapsWords.plan.toWrite);
+    CHECK(g->stats.zeroBytesSkipped == gapsWords.plan.toSkip);
+    REQUIRE(target->readAt(gap, a));
+    CHECK(a[0] == std::byte{0});                                // the gap: zeroed
+    // ext4's free space inside partition 1: the image is zero there (used-blocks-only), the target keeps 0xAA.
+    bool keptInside = false;
+    for (ByteCount off = disk.part1Offset + 32 * MiB; off < disk.part1Offset + disk.part1Size; off += MiB) {
+        REQUIRE(target->readAt(off, a));
+        if (a[0] == std::byte{0xAA}) keptInside = true;
+    }
+    CHECK(keptInside);
+
+    rf.zeros = image::ZeroPolicy::Write;
     Report rreport2("Restore");
     REQUIRE(runRestore(rf, *target, progress, rreport2));
     REQUIRE(target->readAt(gap, a));

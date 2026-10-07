@@ -326,6 +326,32 @@ Expected<CreateOutcome> runCreate(const OpenedSource& source, const CreatePlan& 
     return out;
 }
 
+ZeroPlanText describeZeroPlan(const RestoreForm& form) {
+    ZeroPlanText out;
+    auto fmt = image::detectVdiskFormat(form.image);
+    if (!fmt || *fmt != image::VdiskFormat::Stein) {
+        out.summary = form.zeros == image::ZeroPolicy::Write ? "zero ranges written" : form.zeros == image::ZeroPolicy::Skip ? "zero ranges skipped" : "free space zeroed, partitions kept";
+        return out;
+    }
+    image::RestoreOptions ro;
+    ro.zeroPolicy = form.zeros;
+    auto plan = image::planZeroWrites(form.image, ro, form.passphrase);
+    if (!plan) {
+        out.summary = plan.error().message();
+        return out;
+    }
+    out.plan = *plan;
+    out.ok = true;
+    switch (form.zeros) {
+    case image::ZeroPolicy::Write: out.summary = sizeText(plan->toWrite) + " of zeros written (byte-identical)"; break;
+    case image::ZeroPolicy::Skip: out.summary = sizeText(plan->toSkip) + " of zero ranges left untouched"; break;
+    case image::ZeroPolicy::SkipInside:
+        out.summary = sizeText(plan->toWrite) + " zeroed in free space · " + sizeText(plan->toSkip) + " kept inside partitions (" + plan->keep.reason + ")";
+        break;
+    }
+    return out;
+}
+
 Expected<image::RestoreResult> runRestore(const RestoreForm& form, BlockDevice& target, Progress& progress, Report& report) {
     report.start();
     Report& step = report.addChild("Restore image");
@@ -359,9 +385,16 @@ Expected<image::RestoreResult> runRestore(const RestoreForm& form, BlockDevice& 
         if (target.size() < src->size() && !form.allowSmaller)
             return finishError(Error(ErrorCategory::InvalidArgument, "target is smaller than the image (" + sizeText(target.size()) + " < " + sizeText(src->size()) + ")"));
         image::CopyOptions co;
-        co.skipZeroChunksOnWrite = form.skipZeroChunks;
+        co.zeroPolicy = form.zeros;
+        if (form.zeros == image::ZeroPolicy::SkipInside) {
+            auto keep = image::keepRegionsOf(src);
+            if (!keep) return finishError(keep.error());
+            co.keepRegions = keep->regions;
+            step.addDetail("zero ranges", "free space zeroed, partitions kept (" + keep->reason + ")");
+        } else {
+            step.addDetail("zero ranges", form.zeros == image::ZeroPolicy::Write ? "written" : "skipped: the target keeps whatever it held there");
+        }
         if (target.size() < src->size()) co.limit = target.size();
-        step.addDetail("zero ranges", form.skipZeroChunks ? "skipped: the target keeps whatever it held there" : "written");
         auto r = image::copyDevice(*src, target, co, progress);
         if (!r) return finishError(r.error());
         image::RestoreResult out;
@@ -376,8 +409,9 @@ Expected<image::RestoreResult> runRestore(const RestoreForm& form, BlockDevice& 
     image::RestoreOptions ro;
     ro.verifyPayloadFirst = form.verifyFirst;
     ro.allowSmallerTarget = form.allowSmaller;
-    ro.writeZeroChunks = !form.skipZeroChunks;
-    step.addDetail("zero ranges", form.skipZeroChunks ? "skipped: the target keeps whatever it held there" : "written");
+    ro.zeroPolicy = form.zeros;
+    const ZeroPlanText zp = describeZeroPlan(form);
+    step.addDetail("zero ranges", zp.ok ? zp.summary : (form.zeros == image::ZeroPolicy::Write ? "written" : "skipped"));
     auto r = image::restoreImage(form.image, target, ro, progress, form.passphrase);
     if (!r) return finishError(r.error());
     addStats(step, r->stats);

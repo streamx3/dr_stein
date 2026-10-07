@@ -64,10 +64,12 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
 - [r] H3 disk vs rdisk on macOS; /dev/sda1 on Linux without mounting.
 
 ## K. Restore: write only the non-zero ranges
-- [x] K1 Option in the Restore form ("Write only the non-zero ranges"), warned,
-      recorded in the confirmation and the report; core test covers both modes.
-      Region-aware variant (zero gaps, skip inside partitions) is a libstein item,
-      see `04-restore-zero-chunks.md` addendum.
+- [x] K1 Option in the Restore form, recorded in the confirmation and the report.
+- [x] K2 Region-aware variant in libstein: "Zero free space only" zeroes what the
+      partition table calls free and keeps every partition entry of any type; no
+      table understood → nothing zeroed; byte counts planned from the chunk map
+      before writing; straddling chunks split at the boundary. Tests on both sides;
+      CLI `--zeros gaps`. See `04-restore-zero-chunks.md`.
 
 ## J. Someday (research)
 - [ ] J1 Full Disk Access has to be granted again after every rebuild, and System

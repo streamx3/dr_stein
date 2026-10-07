@@ -82,9 +82,16 @@ struct RestoreForm {
     std::filesystem::path image;
     bool verifyFirst = true;
     bool allowSmaller = false;
-    bool skipZeroChunks = false;   // leave the target untouched where the image is all-zero (fast; the target keeps old bytes there)
+    stein::image::ZeroPolicy zeros = stein::image::ZeroPolicy::Write;   // Write: byte-identical; SkipInside: zero only table-free space; Skip: nothing
     std::string passphrase;
 };
+// The zero plan in words, for the confirmation: "3.1 MB zeroed in free space · 135 MB kept inside partitions (GPT, 2 partitions)".
+struct ZeroPlanText {
+    std::string summary;
+    stein::image::ZeroPlan plan;
+    bool ok = false;
+};
+ZeroPlanText describeZeroPlan(const RestoreForm& form);
 // What an image expects to be restored onto. Whole-device images go to devices, partition
 // images to a partition of matching size; mixing the two is refused unless `force`.
 struct RestoreScope {
