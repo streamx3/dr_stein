@@ -1,0 +1,29 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base", "hidden": true, "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT}"
+      }
+    },
+    { "name": "debug",   "inherits": "base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "release", "inherits": "base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+    { "name": "core",    "inherits": "debug", "description": "Core library and its tests only, no Qt",
+      "cacheVariables": { "DRSTEIN_BUILD_APP": "OFF" } },
+    { "name": "ci",      "inherits": "debug", "cacheVariables": { "DRSTEIN_WERROR": "ON" } }
+  ],
+  "buildPresets": [
+    { "name": "debug",   "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "core",    "configurePreset": "core" },
+    { "name": "ci",      "configurePreset": "ci" }
+  ],
+  "testPresets": [
+    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+    { "name": "core",  "configurePreset": "core",  "output": { "outputOnFailure": true } },
+    { "name": "ci",    "configurePreset": "ci",    "output": { "outputOnFailure": true } }
+  ]
+}

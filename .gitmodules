@@ -1,0 +1,3 @@
+[submodule "libstein"]
+	path = libstein
+	url = https://github.com/streamx3/libstein.git

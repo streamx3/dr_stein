@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-a7bd9961-af7f-4bb8-b5d7-b3964dd560b2/styles.css">
+  <script src="_ds/nocturne-a7bd9961-af7f-4bb8-b5d7-b3964dd560b2/_ds_bundle.js"></script>
+  <style>
+    html,body{margin:0;min-height:100%;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)}
+    body{display:grid;place-items:start center;padding:24px 0}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-300)}
+    button{font:inherit}
+    @keyframes stein-pulse{0%,100%{opacity:.45}50%{opacity:1}}
+  </style>
+</helmet>
+
+<div data-screen-label="Stein" style="width:1280px;height:800px;display:grid;grid-template-rows:48px 1fr;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);overflow:hidden;font-size:13px;line-height:1.45">
+
+  <!-- top bar: brand · view buttons · status -->
+  <div style="display:flex;align-items:center;gap:var(--space-4);padding:0 var(--space-6);background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent) no-repeat bottom / 100% 1px">
+    <div style="display:flex;align-items:center;gap:8px;font-family:var(--font-heading);font-weight:500;font-size:16px;min-width:232px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 14h18"></path><circle cx="17.5" cy="16.5" r="0.9" fill="var(--color-accent)"></circle></svg>
+      Stein
+    </div>
+    <div style="display:flex;gap:2px">
+      <sc-for list="{{ views }}" as="v" hint-placeholder-count="7">
+        <button onClick="{{ v.go }}" style="all:unset;cursor:pointer;display:flex;align-items:center;gap:6px;padding:0 12px;height:48px;font-size:13px;color:{{ v.color }};box-shadow:inset 0 -2px 0 {{ v.mark }}" style-hover="color:var(--color-accent-300)">{{ v.label }}</button>
+      </sc-for>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:var(--space-3)">
+      <sc-if value="{{ elevated }}" hint-placeholder-val="{{ true }}">
+        <span class="tag tag-neutral" style="gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--color-accent)"></span>Elevated · root</span>
+      </sc-if>
+      <sc-if value="{{ notElevated }}" hint-placeholder-val="{{ false }}">
+        <span class="tag tag-outline" style="gap:6px">Not elevated · images only</span>
+      </sc-if>
+      <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;gap:6px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path></svg>
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:264px 1fr;min-height:0">
+
+    <!-- sidebar: disks & images -->
+    <div style="display:flex;flex-direction:column;min-height:0;background:linear-gradient(to bottom,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent) no-repeat right / 1px 100%">
+      <div style="flex:1;overflow:auto;padding:var(--space-4) var(--space-3)">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+          <div style="margin-bottom:var(--space-4)">
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-500);padding:0 10px 6px">{{ g.label }}</div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ g.items }}" as="d" hint-placeholder-count="2">
+                <button onClick="{{ d.select }}" style="all:unset;cursor:pointer;display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:center;padding:7px 10px;border-radius:var(--radius-md);background:{{ d.bg }};box-shadow:inset 2px 0 0 {{ d.edge }}" style-hover="background:var(--color-surface)">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:{{ d.iconColor }}"><path d="{{ d.icon }}"></path></svg>
+                  <div style="min-width:0">
+                    <div style="display:flex;justify-content:space-between;gap:8px"><span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.name }}</span><span style="color:var(--color-neutral-500);font-variant-numeric:tabular-nums">{{ d.size }}</span></div>
+                    <div style="font-size:11px;color:var(--color-neutral-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.sub }}</div>
+                  </div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="padding:var(--space-3);display:flex;flex-direction:column;gap:6px">
+        <button class="btn btn-secondary btn-block" style="margin:0;justify-content:flex-start;gap:8px;font-size:13px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"></path><path d="M14 3v5h5"></path></svg>
+          Open image file…
+        </button>
+      </div>
+    </div>
+
+    <!-- content -->
+    <div style="min-width:0;min-height:0;display:flex;flex-direction:column">
+
+      <!-- identity strip -->
+      <div style="display:flex;align-items:center;gap:var(--space-4);padding:var(--space-4) var(--space-6) var(--space-3)">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:baseline;gap:10px"><span style="font-family:var(--font-heading);font-weight:500;font-size:18px">{{ disk.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--color-neutral-500)">{{ disk.path }}</span></div>
+          <div style="font-size:12px;color:var(--color-neutral-500)">{{ disk.identity }}</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <span class="tag tag-neutral">{{ disk.table }}</span>
+          <span class="tag" style="background:{{ disk.healthBg }};color:{{ disk.healthFg }}">{{ disk.health }}</span>
+          <span class="tag tag-outline">read-only</span>
+        </div>
+      </div>
+
+      <!-- ═══ TOPOLOGY ═══ -->
+      <sc-if value="{{ isTopology }}" hint-placeholder-val="{{ true }}">
+        <div data-screen-label="Topology" style="flex:1;min-height:0;display:grid;grid-template-rows:auto 1fr;gap:var(--space-4);padding:0 var(--space-6) var(--space-6)">
+          <!-- byte-proportional bar -->
+          <div>
+            <div style="display:flex;height:34px;gap:2px;border-radius:var(--radius-md);overflow:hidden">
+              <sc-for list="{{ segments }}" as="s" hint-placeholder-count="4">
+                <button onClick="{{ s.select }}" title="{{ s.title }}" style="all:unset;cursor:pointer;flex:{{ s.flex }};min-width:{{ s.minW }};background:{{ s.bg }};box-shadow:inset 0 0 0 1px {{ s.edge }};display:flex;align-items:center;padding:0 8px;font-size:11px;color:{{ s.fg }};white-space:nowrap;overflow:hidden"><span style="overflow:hidden;text-overflow:ellipsis">{{ s.label }}</span></button>
+              </sc-for>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--color-neutral-600);font-family:ui-monospace,Menlo,monospace;padding:4px 2px 0"><span>LBA 0</span><span>{{ disk.lastLba }}</span></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 320px;gap:var(--space-6);min-height:0">
+            <!-- tree -->
+            <div style="min-width:0;overflow:auto">
+              <div style="display:grid;grid-template-columns:1fr 150px 90px 96px;gap:12px;padding:0 10px 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-500);background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent) no-repeat bottom / 100% 1px"><span>Node</span><span>Content</span><span style="text-align:right">Size</span><span>Health</span></div>
+              <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="8">
+                <button onClick="{{ n.select }}" style="all:unset;cursor:pointer;display:grid;grid-template-columns:1fr 150px 90px 96px;gap:12px;align-items:center;width:100%;box-sizing:border-box;padding:7px 10px;border-radius:var(--radius-sm);background:{{ n.bg }}" style-hover="background:var(--color-surface)">
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0;padding-left:{{ n.pad }}px">
+                    <span style="width:8px;height:8px;border-radius:2px;flex:none;background:{{ n.swatch }}"></span>
+                    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ n.name }}</span>
+                    <span style="font-size:11px;color:var(--color-neutral-500);white-space:nowrap">{{ n.kind }}</span>
+                  </span>
+                  <span style="font-size:12px;color:var(--color-neutral-400);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ n.content }}</span>
+                  <span style="text-align:right;font-variant-numeric:tabular-nums;color:var(--color-neutral-300)">{{ n.size }}</span>
+                  <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:{{ n.healthFg }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ n.healthDot }}"></span>{{ n.health }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <!-- details -->
+            <div class="card elev-sm" style="gap:var(--space-3);overflow:auto;min-height:0">
+              <div>
+                <div class="card-kicker">{{ sel.kind }}</div>
+                <div class="card-title">{{ sel.name }}</div>
+                <div style="font-size:12px;color:var(--color-neutral-500);font-family:ui-monospace,Menlo,monospace">{{ sel.region }}</div>
+              </div>
+              <sc-if value="{{ sel.hasUsed }}" hint-placeholder-val="{{ true }}">
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--color-neutral-400);margin-bottom:4px"><span>{{ sel.usedLabel }}</span><span>{{ sel.usedPct }}</span></div>
+                  <div style="height:5px;border-radius:3px;background:var(--color-neutral-900);overflow:hidden"><div style="height:100%;width:{{ sel.usedPct }};background:var(--color-accent);box-shadow:0 0 10px var(--color-accent-700)"></div></div>
+                </div>
+              </sc-if>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12px">
+                <sc-for list="{{ sel.rows }}" as="r" hint-placeholder-count="6">
+                  <span style="color:var(--color-neutral-500);white-space:nowrap">{{ r.k }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;word-break:break-all">{{ r.v }}</span>
+                </sc-for>
+              </div>
+              <sc-for list="{{ sel.notes }}" as="nt" hint-placeholder-count="1">
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--color-neutral-900);font-size:12px"><span style="color:{{ nt.fg }};font-family:ui-monospace,Menlo,monospace;font-size:11px">{{ nt.code }}</span><span>{{ nt.msg }}</span></div>
+              </sc-for>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:auto">
+                <button class="btn btn-primary" style="padding:5px 10px;font-size:12px" onClick="{{ goHex }}">Inspect bytes</button>
+                <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onClick="{{ goBrowse }}" disabled="{{ sel.noBrowse }}">Browse files</button>
+                <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" disabled="{{ sel.noRepair }}">Repair</button>
+                <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Mount</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ═══ HEX / STRUCT ═══ -->
+      <sc-if value="{{ isHex }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Hex" style="flex:1;min-height:0;display:grid;grid-template-rows:auto 1fr auto;gap:var(--space-3);padding:0 var(--space-6) var(--space-4)">
+          <div style="display:flex;align-items:center;gap:var(--space-3)">
+            <div class="seg">
+              <sc-for list="{{ structs }}" as="st" hint-placeholder-count="3">
+                <button onClick="{{ st.select }}" style="all:unset;cursor:pointer;padding:6px 12px;font-size:12px;color:{{ st.fg }};box-shadow:{{ st.ring }};border-left:1px solid var(--color-divider);margin-left:-1px">{{ st.label }}</button>
+              </sc-for>
+            </div>
+            <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--color-neutral-500)">{{ struct.where }}</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Save header…</button>
+              <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Restore from file…</button>
+              <button class="btn btn-ghost" style="padding:5px 8px;font-size:12px" onClick="{{ revert }}" disabled="{{ clean }}">Revert</button>
+              <button class="btn btn-primary" style="padding:5px 10px;font-size:12px" disabled="{{ clean }}">Write {{ dirtyCount }} bytes…</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:var(--space-4);min-height:0">
+            <!-- hex pane -->
+            <div style="display:flex;flex-direction:column;min-height:0;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);font-family:ui-monospace,Menlo,monospace;font-size:12px">
+              <div style="display:grid;grid-template-columns:76px 1fr 136px;column-gap:10px;padding:8px 12px 6px;font-size:10px;letter-spacing:.06em;color:var(--color-neutral-500);background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent) no-repeat bottom / 100% 1px"><span>OFFSET</span><span style="display:grid;grid-template-columns:repeat(16,1fr);gap:3px;text-align:center"><span>00</span><span>01</span><span>02</span><span>03</span><span>04</span><span>05</span><span>06</span><span>07</span><span>08</span><span>09</span><span>0A</span><span>0B</span><span>0C</span><span>0D</span><span>0E</span><span>0F</span></span><span>ASCII</span></div>
+              <div style="flex:1;overflow:auto;padding:4px 12px 8px">
+                <sc-for list="{{ rows }}" as="r" hint-placeholder-count="16">
+                  <div style="display:grid;grid-template-columns:76px 1fr 136px;column-gap:10px;align-items:center;height:20px">
+                    <span style="color:var(--color-neutral-600);font-size:11px">{{ r.off }}</span>
+                    <span style="display:grid;grid-template-columns:repeat(16,1fr);gap:3px">
+                      <sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="16">
+                        <button onClick="{{ c.pick }}" style="all:unset;cursor:pointer;text-align:center;height:18px;line-height:18px;border-radius:3px;background:{{ c.bg }};color:{{ c.fg }}" style-hover="outline:1px solid var(--color-accent)">{{ c.hex }}</button>
+                      </sc-for>
+                    </span>
+                    <span style="color:var(--color-neutral-400);letter-spacing:.04em;white-space:pre;font-size:11.5px">{{ r.ascii }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <!-- struct pane -->
+            <div style="display:flex;flex-direction:column;min-height:0;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm)">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px 6px;font-size:10px;letter-spacing:.06em;color:var(--color-neutral-500);background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent) no-repeat bottom / 100% 1px"><span>PARSED · {{ struct.label }}</span><span>{{ struct.validity }}</span></div>
+              <div style="flex:1;overflow:auto;padding:6px 12px 8px;font-family:ui-monospace,Menlo,monospace;font-size:12px">
+                <div style="color:var(--color-neutral-500)">{</div>
+                <sc-for list="{{ fields }}" as="f" hint-placeholder-count="14">
+                  <div onClick="{{ f.pick }}" style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:1px 8px 1px {{ f.pad }}px;margin:0 -8px;border-radius:3px;background:{{ f.bg }};cursor:pointer;min-height:20px" style-hover="background:var(--color-neutral-900)">
+                    <span style="display:flex;gap:6px;min-width:0;align-items:center">
+                      <span style="color:var(--color-accent-300)">"{{ f.name }}"</span><span style="color:var(--color-neutral-500)">:</span>
+                      <sc-if value="{{ f.editing }}" hint-placeholder-val="{{ false }}">
+                        <input class="input" value="{{ f.value }}" onChange="{{ f.commit }}" onKeyDown="{{ f.key }}" style="min-height:20px;padding:0 6px;font-family:inherit;font-size:12px;width:220px;border-color:var(--color-accent)">
+                      </sc-if>
+                      <sc-if value="{{ f.notEditing }}" hint-placeholder-val="{{ true }}">
+                        <span onDoubleClick="{{ f.edit }}" style="color:{{ f.vfg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.display }}</span>
+                      </sc-if>
+                    </span>
+                    <span style="display:flex;gap:10px;font-size:10.5px;color:var(--color-neutral-600);white-space:nowrap"><span>{{ f.type }}</span><span>@{{ f.offHex }}</span><span>{{ f.len }} B</span><span style="color:{{ f.okFg }}">{{ f.ok }}</span></span>
+                  </div>
+                </sc-for>
+                <div style="color:var(--color-neutral-500)">}</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;font-size:11.5px;color:var(--color-neutral-500);font-family:ui-monospace,Menlo,monospace"><span>{{ selFieldLine }}</span><span style="margin-left:auto;color:var(--color-neutral-600)">double-click a value to edit · click bytes to select the field · edits preview on an overlay until Write</span></div>
+        </div>
+      </sc-if>
+
+      <!-- ═══ FILE BROWSER ═══ -->
+      <sc-if value="{{ isBrowse }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Browse" style="flex:1;min-height:0;display:grid;grid-template-rows:auto 1fr auto;gap:var(--space-3);padding:0 var(--space-6) var(--space-4)">
+          <div style="display:flex;align-items:center;gap:var(--space-3)">
+            <div style="display:flex;align-items:center;gap:4px;font-size:12.5px;padding:5px 10px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);font-family:ui-monospace,Menlo,monospace"><span style="color:var(--color-accent-300)">fedora</span><span style="color:var(--color-neutral-600)">ext4</span><span style="color:var(--color-neutral-600)">/</span><span>etc</span></div>
+            <span class="tag tag-outline">read-only</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Mount instead</button>
+              <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Copy all…</button>
+              <button class="btn btn-primary" style="padding:5px 10px;font-size:12px">Copy out…</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:220px 1fr 280px;gap:var(--space-4);min-height:0">
+            <div style="overflow:auto;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);padding:8px 6px;font-size:12.5px">
+              <sc-for list="{{ dirs }}" as="d" hint-placeholder-count="9">
+                <div style="display:flex;align-items:center;gap:6px;padding:4px 8px 4px {{ d.pad }}px;border-radius:var(--radius-sm);background:{{ d.bg }};color:{{ d.fg }}" style-hover="background:var(--color-neutral-900)">
+                  <span style="width:10px;color:var(--color-neutral-600);font-size:10px">{{ d.caret }}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" style="color:var(--color-accent-400)"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"></path></svg>
+                  <span>{{ d.name }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="overflow:auto;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);font-size:12.5px">
+              <div style="display:grid;grid-template-columns:1fr 80px 130px 90px;gap:10px;padding:8px 12px 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-500);background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent) no-repeat bottom / 100% 1px"><span>Name</span><span style="text-align:right">Size</span><span>Modified</span><span>Mode</span></div>
+              <sc-for list="{{ entries }}" as="e" hint-placeholder-count="10">
+                <div style="display:grid;grid-template-columns:1fr 80px 130px 90px;gap:10px;align-items:center;padding:5px 12px;background:{{ e.bg }}" style-hover="background:var(--color-neutral-900)">
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" style="color:{{ e.iconFg }};flex:none"><path d="{{ e.icon }}"></path></svg><span style="white-space:nowrap">{{ e.name }}</span><span style="font-size:11px;color:var(--color-neutral-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.link }}</span></span>
+                  <span style="text-align:right;font-variant-numeric:tabular-nums;color:var(--color-neutral-400)">{{ e.size }}</span>
+                  <span style="color:var(--color-neutral-400);font-variant-numeric:tabular-nums">{{ e.mtime }}</span>
+                  <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--color-neutral-500)">{{ e.mode }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div class="card elev-sm" style="gap:var(--space-3);min-height:0;overflow:auto">
+              <div><div class="card-kicker">Preview · text</div><div class="card-title" style="font-size:15px">fstab</div><div style="font-size:11.5px;color:var(--color-neutral-500)">inode 1835011 · 724 B · -rw-r--r-- root:root</div></div>
+              <pre style="margin:0;padding:10px;border-radius:var(--radius-sm);background:var(--color-neutral-900);font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.5;color:var(--color-neutral-300);overflow:auto;white-space:pre">#
+# /etc/fstab
+# Created by anaconda
+#
+UUID=3f1c…e8a1  /      ext4  defaults 1 1
+UUID=1A2B-3C4D  /boot/efi vfat umask=0077 0 2
+/dev/mapper/fedora-swap none swap defaults 0 0</pre>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:11.5px"><span style="color:var(--color-neutral-500)">mtime</span><span>2026-09-28 22:14</span><span style="color:var(--color-neutral-500)">crtime</span><span>2025-11-02 09:41</span><span style="color:var(--color-neutral-500)">SHA-256</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--color-neutral-500)">not computed</span></div>
+              <div style="display:flex;gap:6px;margin-top:auto"><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Hash</button><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Hex</button><button class="btn btn-primary" style="padding:5px 10px;font-size:12px;margin-left:auto">Copy out…</button></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;font-size:11.5px;color:var(--color-neutral-500)"><span>12 entries · 1 selected</span><span>lazy: nothing read until a directory opens</span><span style="margin-left:auto">drag an entry to a folder on your desktop to copy it out</span></div>
+        </div>
+      </sc-if>
+
+      <!-- ═══ IMAGE ═══ -->
+      <sc-if value="{{ isImage }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Image" style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6);padding:0 var(--space-6) var(--space-6)">
+          <div style="display:flex;flex-direction:column;gap:var(--space-4);min-height:0;overflow:auto">
+            <div class="seg" style="align-self:flex-start"><span class="seg-opt" style="color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">Create image</span><span class="seg-opt">Restore image</span><span class="seg-opt">Verify</span><span class="seg-opt">Keys</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3) var(--space-4)">
+              <div class="field" style="grid-column:1/-1"><label>Source</label><div class="input" style="display:flex;align-items:center;gap:8px;color:var(--color-neutral-300)"><span>{{ disk.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--color-neutral-500)">{{ disk.path }} · {{ disk.sizeLong }}</span></div></div>
+              <div class="field" style="grid-column:1/-1"><label>Destination</label><div style="display:flex;gap:6px"><input class="input" value="/mnt/backup/ws-2026-10-06.stein" style="font-family:ui-monospace,Menlo,monospace;font-size:12px"><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;flex:none">Choose…</button></div></div>
+              <div class="field"><label>Format</label><div class="seg" style="display:flex"><span class="seg-opt" style="flex:1;justify-content:center;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">.stein</span><span class="seg-opt" style="flex:1;justify-content:center">raw .img</span></div></div>
+              <div class="field"><label>Compression</label><div class="seg" style="display:flex"><span class="seg-opt" style="flex:1;justify-content:center;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">LZ4</span><span class="seg-opt" style="flex:1;justify-content:center">None</span></div></div>
+              <div class="field"><label>Chunk size</label><input class="input" value="1 MiB"></div>
+              <div class="field"><label>Split every</label><input class="input" value="— (single file)"></div>
+              <div class="field" style="grid-column:1/-1"><label>Bad sectors</label><div style="display:flex;gap:18px;font-size:13px"><label class="radio"><input type="radio" name="bad" defaultChecked="{{ true }}"><span class="dot"></span>Zero-fill and count</label><label class="radio"><input type="radio" name="bad"><span class="dot"></span>Fail</label></div></div>
+              <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:8px;font-size:13px">
+                <label style="display:flex;gap:10px;align-items:flex-start"><span style="width:16px;height:16px;border-radius:4px;flex:none;margin-top:2px;background:var(--color-accent);box-shadow:inset 0 0 0 3px var(--color-surface)"></span><span>Used blocks only<span style="display:block;font-size:11.5px;color:var(--color-neutral-500)">free space of EFI (FAT32), root (ext4) and Data (NTFS) becomes implicit zero chunks</span></span></label>
+                <label style="display:flex;gap:10px;align-items:center"><span style="width:16px;height:16px;border-radius:4px;flex:none;background:var(--color-accent);box-shadow:inset 0 0 0 3px var(--color-surface)"></span>Verify after writing (level 3 · full content + SHA-256)</label>
+                <label style="display:flex;gap:10px;align-items:center"><span style="width:16px;height:16px;border-radius:4px;flex:none;border:1.5px solid var(--color-divider)"></span>Encrypt <span style="font-size:11.5px;color:var(--color-neutral-500)">ChaCha20-Poly1305 · Argon2id</span></label>
+              </div>
+              <div class="field" style="grid-column:1/-1"><label>Notes</label><input class="input" value="Workstation before Fedora 44 upgrade"></div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:auto"><button class="btn btn-primary">Start imaging</button><button class="btn btn-secondary">Dry run</button></div>
+          </div>
+          <!-- progress + report -->
+          <div class="card elev-sm" style="gap:var(--space-4);min-height:0">
+            <div>
+              <div class="card-kicker">Running · create</div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><div class="card-title" style="font-size:16px">Reading partition 2 · root (ext4, used blocks)</div><span style="font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--color-accent-300)">43%</span></div>
+            </div>
+            <div style="height:6px;border-radius:3px;background:var(--color-neutral-900);overflow:hidden"><div style="height:100%;width:43%;background:var(--color-accent);box-shadow:0 0 12px var(--color-accent-600)"></div></div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:11.5px;color:var(--color-neutral-500)"><span>212.4 GB <span style="color:var(--color-neutral-600)">/ 500.1 GB</span></span><span>481 MB/s</span><span>ETA 9 min 58 s</span><span style="text-align:right"><a href="#" style="text-decoration:none">Cancel</a></span></div>
+            <div style="flex:1;overflow:auto;font-size:12.5px;display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ report }}" as="r" hint-placeholder-count="7">
+                <div style="display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;padding:4px 8px 4px {{ r.pad }}px;border-radius:var(--radius-sm)">
+                  <span style="width:8px;height:8px;border-radius:50%;background:{{ r.dot }};box-shadow:{{ r.glow }};animation:{{ r.anim }}"></span>
+                  <span style="color:{{ r.fg }}">{{ r.title }}<span style="color:var(--color-neutral-500);margin-left:8px;font-size:11.5px">{{ r.detail }}</span></span>
+                  <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--color-neutral-600)">{{ r.dur }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ═══ PROFILES ═══ -->
+      <sc-if value="{{ isProfiles }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Profiles" style="flex:1;min-height:0;overflow:auto;padding:0 var(--space-6) var(--space-6);display:flex;flex-direction:column;gap:var(--space-4)">
+          <div style="font-size:12.5px;color:var(--color-neutral-500);max-width:640px">One profile is one disk and one image. Three buttons, each dry-runnable; the verdict comes from the library, not the screen.</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-4);align-items:start">
+            <sc-for list="{{ profiles }}" as="p" hint-placeholder-count="2">
+              <div class="card elev-sm" style="gap:var(--space-3);opacity:{{ p.opacity }}">
+                <div><div class="card-kicker">{{ p.kicker }}</div><div class="card-title">{{ p.name }}</div><div class="card-body" style="opacity:1;color:var(--color-neutral-400)">{{ p.desc }}</div></div>
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:12px;padding:10px;border-radius:var(--radius-sm);background:var(--color-neutral-900)">
+                  <span style="color:var(--color-neutral-500)">Disk</span><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{ p.diskDot }}"></span>{{ p.disk }}</span>
+                  <span style="color:var(--color-neutral-500)">Match</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px">{{ p.selector }}</span>
+                  <span style="color:var(--color-neutral-500)">Image</span><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{ p.imgDot }}"></span>{{ p.image }}</span>
+                  <span style="color:var(--color-neutral-500)">Made</span><span>{{ p.made }}</span>
+                  <span style="color:var(--color-neutral-500)">Fits</span><span>{{ p.fits }}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+                  <button class="btn btn-primary" style="padding:12px 0;flex-direction:column;gap:2px" disabled="{{ p.disabled }}"><span style="font-size:14px">Back up</span><span style="font-size:10px;color:var(--color-neutral-500);font-weight:400">disk → image</span></button>
+                  <button class="btn btn-secondary" style="padding:12px 0;flex-direction:column;gap:2px" disabled="{{ p.disabled }}"><span style="font-size:14px">Restore</span><span style="font-size:10px;color:var(--color-neutral-500);font-weight:400">image → disk</span></button>
+                  <button class="btn btn-secondary" style="padding:12px 0;flex-direction:column;gap:2px" disabled="{{ p.noImage }}"><span style="font-size:14px">Verify</span><span style="font-size:10px;color:var(--color-neutral-500);font-weight:400">level {{ p.level }}</span></button>
+                </div>
+                <div class="card-meta">{{ p.policy }}</div>
+              </div>
+            </sc-for>
+            <button class="btn btn-secondary" style="min-height:160px;border-style:dashed;flex-direction:column;gap:6px;color:var(--color-neutral-400);font-weight:400"><span style="font-size:22px;color:var(--color-accent)">+</span>New profile from this disk</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ═══ TOOLS ═══ -->
+      <sc-if value="{{ isTools }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Tools" style="flex:1;min-height:0;overflow:auto;padding:0 var(--space-6) var(--space-6);display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);align-items:start;position:relative">
+          <div class="card elev-sm" style="gap:var(--space-3)">
+            <div><div class="card-kicker">Read-only</div><div class="card-title">Surface scan</div><div class="card-body" style="opacity:1;color:var(--color-neutral-400)">Reads every sector of {{ disk.path }} and lists unreadable regions. Writes nothing.</div></div>
+            <div style="display:grid;grid-template-columns:repeat(64,1fr);gap:2px;padding:10px;border-radius:var(--radius-sm);background:var(--color-neutral-900)">
+              <sc-for list="{{ scanCells }}" as="c" hint-placeholder-count="192">
+                <span style="aspect-ratio:1;border-radius:1px;background:{{ c }}"></span>
+              </sc-for>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px"><div><div style="color:var(--color-neutral-500);font-size:11px">Scanned</div>500.1 GB · 100%</div><div><div style="color:var(--color-neutral-500);font-size:11px">Unreadable</div><span style="color:var(--color-accent-300)">2 regions · 24 KiB</span></div><div><div style="color:var(--color-neutral-500);font-size:11px">Read</div>1.9 GB/s · 4 min 21 s</div></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--color-neutral-400);padding:8px 10px;border-radius:var(--radius-sm);background:var(--color-neutral-900)">LBA 412 788 224 – 412 788 255 · 16 KiB · in partition 2 (root)<br>LBA 901 002 112 – 901 002 127 · 8 KiB · in partition 3 (Data)</div>
+            <div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:6px 12px">Scan again</button><button class="btn btn-secondary" style="padding:6px 12px">Save report…</button></div>
+          </div>
+          <div class="card elev-sm" style="gap:var(--space-3)">
+            <div><div class="card-kicker" style="color:var(--color-accent-300)">Destructive</div><div class="card-title">Capacity test (fake-flash)</div><div class="card-body" style="opacity:1;color:var(--color-neutral-400)">Writes a pattern across the whole device, reads it back, finds where data stops matching or wraps around, estimates real capacity and measures speed. Everything on the device is lost.</div></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+              <div class="field"><label>Target</label><div class="input" style="display:flex;align-items:center;gap:8px;font-size:13px;white-space:nowrap;overflow:hidden">SanDisk Ultra <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--color-neutral-500)">/dev/sdb</span></div></div>
+              <div class="field"><label>Mode</label><div class="seg" style="display:flex"><span class="seg-opt" style="flex:1;justify-content:center;white-space:nowrap;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">Quick · 1/16</span><span class="seg-opt" style="flex:1;justify-content:center">Full</span></div></div>
+            </div>
+            <label style="display:flex;gap:10px;align-items:center;font-size:13px"><span style="width:16px;height:16px;border-radius:4px;flex:none;background:var(--color-accent);box-shadow:inset 0 0 0 3px var(--color-surface)"></span>Restore zeros afterwards</label>
+            <div style="display:flex;gap:6px"><button class="btn btn-primary" style="padding:6px 12px" onClick="{{ openConfirm }}">Run test…</button><span style="font-size:11.5px;color:var(--color-neutral-500);align-self:center">refuses while any volume on /dev/sdb is mounted</span></div>
+          </div>
+          <!-- confirmation -->
+          <sc-if value="{{ confirm }}" hint-placeholder-val="{{ false }}">
+            <div class="dialog-backdrop" style="position:absolute;inset:0;border-radius:0">
+              <div class="dialog" style="gap:var(--space-4)">
+                <div class="dialog-title">Erase and test this device?</div>
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;padding:12px;border-radius:var(--radius-md);background:var(--color-neutral-900)">
+                  <span style="color:var(--color-neutral-500)">Device</span><span>SanDisk Ultra · 61.5 GB · USB · removable</span>
+                  <span style="color:var(--color-neutral-500)">Path</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">/dev/sdb</span>
+                  <span style="color:var(--color-neutral-500)">Serial</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">4C530001230812117583</span>
+                  <span style="color:var(--color-neutral-500)">Contains</span><span>MBR · 1 partition · exFAT "SANDISK" (2.1 GB used)</span>
+                </div>
+                <div class="dialog-body">Every byte on the device will be overwritten. Type the kernel name to confirm.</div>
+                <input class="input" placeholder="sdb" style="font-family:ui-monospace,Menlo,monospace">
+                <div class="dialog-actions"><button class="btn btn-secondary" onClick="{{ closeConfirm }}">Cancel</button><button class="btn btn-primary" disabled="{{ true }}">Erase and test</button></div>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <!-- ═══ PARTITION EDITOR ═══ -->
+      <sc-if value="{{ isParts }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Partitions" style="flex:1;min-height:0;display:grid;grid-template-rows:auto 1fr;gap:var(--space-4);padding:0 var(--space-6) var(--space-6)">
+          <div style="display:grid;grid-template-columns:70px 1fr;gap:6px 12px;align-items:center;font-size:11px;color:var(--color-neutral-500)">
+            <span>Current</span>
+            <div style="display:flex;height:22px;gap:2px;border-radius:var(--radius-sm);overflow:hidden"><span style="flex:0 0 2%;background:var(--color-accent-800)"></span><span style="flex:80;background:var(--color-accent-700)"></span><span style="flex:0 0 1%;background:repeating-linear-gradient(135deg,var(--color-neutral-900) 0 3px,var(--color-neutral-800) 3px 6px)"></span><span style="flex:20;background:var(--color-neutral-700)"></span></div>
+            <span style="color:var(--color-accent-300)">Preview</span>
+            <div style="display:flex;height:22px;gap:2px;border-radius:var(--radius-sm);overflow:hidden;box-shadow:0 0 0 1px var(--color-accent-700)"><span style="flex:0 0 2%;background:var(--color-accent-800)"></span><span style="flex:80;background:var(--color-accent-700)"></span><span style="flex:0 0 1%;background:repeating-linear-gradient(135deg,var(--color-neutral-900) 0 3px,var(--color-neutral-800) 3px 6px)"></span><span style="flex:12;background:var(--color-neutral-700)"></span><span style="flex:8;background:var(--color-accent-500);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--color-accent-100)">4 · new</span></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 360px;gap:var(--space-6);min-height:0">
+            <div style="min-width:0;overflow:auto">
+              <div style="display:grid;grid-template-columns:1fr 150px 90px 96px;gap:12px;padding:0 10px 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-500);background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent) no-repeat bottom / 100% 1px"><span>Preview tree</span><span>Type</span><span style="text-align:right">Size</span><span>Change</span></div>
+              <sc-for list="{{ previewNodes }}" as="n" hint-placeholder-count="6">
+                <div style="display:grid;grid-template-columns:1fr 150px 90px 96px;gap:12px;align-items:center;padding:7px 10px;border-radius:var(--radius-sm);background:{{ n.bg }}">
+                  <span style="display:flex;align-items:center;gap:8px;padding-left:{{ n.pad }}px;min-width:0"><span style="width:8px;height:8px;border-radius:2px;flex:none;background:{{ n.swatch }}"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ n.name }}</span></span>
+                  <span style="font-size:12px;color:var(--color-neutral-400)">{{ n.type }}</span>
+                  <span style="text-align:right;font-variant-numeric:tabular-nums;color:var(--color-neutral-300)">{{ n.size }}</span>
+                  <span style="font-size:11px;color:{{ n.changeFg }}">{{ n.change }}</span>
+                </div>
+              </sc-for>
+              <div style="display:flex;gap:6px;margin-top:var(--space-4);padding:0 10px"><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Add partition…</button><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Edit…</button><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Delete</button><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px">Repair table</button><button class="btn btn-ghost" style="padding:5px 8px;font-size:12px">New table…</button></div>
+            </div>
+            <div class="card elev-sm" style="gap:var(--space-3);min-height:0">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><div><div class="card-kicker">Operation stack</div><div class="card-title" style="font-size:15px">3 pending · 1 destructive</div></div><span style="font-size:11px;color:var(--color-neutral-500)">overlay · nothing written</span></div>
+              <div style="display:flex;flex-direction:column;gap:4px;font-size:12.5px">
+                <sc-for list="{{ ops }}" as="o" hint-placeholder-count="3">
+                  <div style="display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-radius:var(--radius-sm);background:var(--color-neutral-900)">
+                    <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--color-neutral-600)">{{ o.n }}</span>
+                    <span>{{ o.title }}<span style="display:block;font-size:11px;color:var(--color-neutral-500);font-family:ui-monospace,Menlo,monospace">{{ o.detail }}</span></span>
+                    <sc-if value="{{ o.destructive }}" hint-placeholder-val="{{ false }}"><span class="tag tag-accent" style="font-size:10px;padding:2px 7px">destructive</span></sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="font-size:11.5px;color:var(--color-neutral-500)">Changed byte ranges<div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--color-neutral-400);margin-top:4px">0x200–0x400 · 0x400–0x4400 · 0x745F5E7E00–0x745F5E8200</div></div>
+              <div style="display:flex;gap:6px;margin-top:auto"><button class="btn btn-primary" style="padding:6px 12px">Apply 3 operations…</button><button class="btn btn-secondary" style="padding:6px 12px">Undo last</button><button class="btn btn-ghost" style="padding:6px 8px">Clear</button></div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1328,&quot;height&quot;:848},&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;blurple&quot;,&quot;options&quot;:[&quot;blurple&quot;,&quot;teal&quot;],&quot;tsType&quot;:&quot;'blurple' | 'teal'&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;expertMode&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;elevated&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;}}">
+class Component extends DCLogic {
+  state = { view: 'topology', disk: 'nvme0n1', node: 2, struct: 'gpt', field: null, editing: null, confirm: false, edits: {} };
+
+  // ── theme: palette × light/dark applied as token overrides ──
+  palettes() {
+    return {
+      blurple: { accent: '#9184d9', accent2: '#a7a1db',
+        accentRamp: ['#f5f4ff', '#e7e5fe', '#d2cefd', '#b5abfc', '#968ae0', '#796cbf', '#5d5294', '#423a6a', '#2b2741'],
+        neutralRamp: ['#f3f5fe', '#e4e7f5', '#cfd3e5', '#b2b6ca', '#9397ab', '#75798c', '#595d6c', '#3f424d', '#292b31'],
+        dark: { bg: '#161826', surface: '#232532', text: '#e9e9ed', edge: '#3f424d', edge2: '#595d6c', edge3: '#9397ab' },
+        light: { bg: '#eef0f7', surface: '#f9f9fd', text: '#1c1e2b', edge: '#cfd3e5', edge2: '#b2b6ca', edge3: '#75798c' } },
+      teal: { accent: '#3fc9c4', accent2: '#7ad3cf',
+        accentRamp: ['#ecfffd', '#cdfaf7', '#a6f0ec', '#6fdfda', '#3fc9c4', '#22a39f', '#167c7a', '#105857', '#0b3a3a'],
+        neutralRamp: ['#eef7f8', '#dceaec', '#c3d6d9', '#a4b9bd', '#869a9f', '#687c81', '#4e5f63', '#374448', '#23303a'],
+        dark: { bg: '#0c1619', surface: '#132226', text: '#dff1f2', edge: '#24383d', edge2: '#375056', edge3: '#5f8389' },
+        light: { bg: '#e9f3f4', surface: '#f6fbfb', text: '#10272a', edge: '#c3d6d9', edge2: '#a4b9bd', edge3: '#687c81' } }
+    };
+  }
+  applyTheme() {
+    const p = this.palettes()[this.props.palette ?? 'blurple'] || this.palettes().blurple;
+    const light = (this.props.theme ?? 'dark') === 'light';
+    const g = light ? p.light : p.dark;
+    const ar = light ? [...p.accentRamp].reverse() : p.accentRamp;
+    const nr = light ? [...p.neutralRamp].reverse() : p.neutralRamp;
+    const r = document.documentElement.style;
+    r.setProperty('--color-bg', g.bg); r.setProperty('--color-surface', g.surface); r.setProperty('--color-text', g.text);
+    r.setProperty('--color-accent', light ? p.accentRamp[5] : p.accent); r.setProperty('--color-accent-2', p.accent2);
+    r.setProperty('--color-divider', `color-mix(in srgb, ${g.text} 16%, transparent)`);
+    [100, 200, 300, 400, 500, 600, 700, 800, 900].forEach((s, i) => { r.setProperty(`--color-accent-${s}`, ar[i]); r.setProperty(`--color-accent-2-${s}`, ar[i]); r.setProperty(`--color-neutral-${s}`, nr[i]); });
+    r.setProperty('--shadow-sm', `0 0 0 1px ${g.edge}`);
+    r.setProperty('--shadow-md', `0 0 0 1px ${g.edge2}, 0 6px 18px rgba(0,0,0,${light ? 0.12 : 0.55})`);
+    r.setProperty('--shadow-lg', `0 0 0 1px ${g.edge3}, 0 16px 40px rgba(0,0,0,${light ? 0.18 : 0.65})`);
+  }
+  componentDidMount() { this.applyTheme(); }
+  componentDidUpdate() { this.applyTheme(); }
+
+  // ── byte buffers for the hex view ──
+  buf(key) {
+    if (!this._bufs) this._bufs = {};
+    if (this._bufs[key]) return this._bufs[key];
+    const b = new Uint8Array(512);
+    const le = (off, v, n) => { for (let i = 0; i < n; i++) { b[off + i] = Number((BigInt(v) >> BigInt(8 * i)) & 255n); } };
+    const str = (off, s) => { for (let i = 0; i < s.length; i++) b[off + i] = s.charCodeAt(i); };
+    const hex = (off, h) => { h.split(' ').forEach((x, i) => b[off + i] = parseInt(x, 16)); };
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) & 255;
+    if (key === 'gpt') {
+      str(0, 'EFI PART'); hex(8, '00 00 01 00'); le(12, 92, 4); hex(16, '3B 7F A2 C1'); le(24, 1, 8); le(32, 976773167, 8); le(40, 34, 8); le(48, 976773134, 8);
+      hex(56, '0E 2D 7A 9F 61 B3 44 7C 9C 1E 5A 2F 8D 11 B0 42'); le(72, 2, 8); le(80, 128, 4); le(84, 128, 4); hex(88, 'D4 19 6E 0A');
+    } else if (key === 'mbr') {
+      for (let i = 0; i < 440; i++) b[i] = i < 3 ? [0xEB, 0x63, 0x90][i] : rnd();
+      hex(440, '7A 1C 3E 55'); hex(446, '80 20 21 00 EE FE FF FF 01 00 00 00 AF 6D 38 3A'); b[510] = 0x55; b[511] = 0xAA;
+    } else {
+      hex(0, 'EB 58 90'); str(3, 'mkfs.fat'); le(11, 512, 2); b[13] = 8; le(14, 32, 2); b[16] = 2; b[21] = 0xF8; le(24, 32, 2); le(26, 64, 2); le(28, 2048, 4); le(32, 1048576, 4); le(36, 1024, 4);
+      le(44, 2, 4); le(48, 1, 2); le(50, 6, 2); b[64] = 0x80; b[66] = 0x29; hex(67, '4D 3C 2B 1A'); str(71, 'EFI        '); str(82, 'FAT32   '); b[510] = 0x55; b[511] = 0xAA;
+      for (let i = 90; i < 200; i++) b[i] = rnd();
+    }
+    return (this._bufs[key] = b);
+  }
+  structDefs() {
+    return {
+      gpt: { label: 'GPT header', where: 'LBA 1 · byte 0x200 · 512 B shown · 92 B used', base: 0x200, validity: 'all 14 fields valid · CRCs match', fields: [
+        ['signature', 0, 8, 'ascii'], ['revision', 8, 4, 'hex'], ['header_size', 12, 4, 'u32'], ['header_crc32', 16, 4, 'hex'], ['reserved', 20, 4, 'hex'], ['current_lba', 24, 8, 'u64'], ['backup_lba', 32, 8, 'u64'], ['first_usable_lba', 40, 8, 'u64'], ['last_usable_lba', 48, 8, 'u64'], ['disk_guid', 56, 16, 'guid'], ['entries_lba', 72, 8, 'u64'], ['entry_count', 80, 4, 'u32'], ['entry_size', 84, 4, 'u32'], ['entries_crc32', 88, 4, 'hex']] },
+      mbr: { label: 'MBR boot record', where: 'LBA 0 · byte 0x0 · 512 B', base: 0, validity: 'protective MBR · signature valid', fields: [
+        ['bootstrap_code', 0, 440, 'blob'], ['disk_signature', 440, 4, 'hex'], ['reserved', 444, 2, 'hex'], ['partition_entries[0]', 446, 16, 'obj'], ['status', 446, 1, 'hex', 1], ['chs_first', 447, 3, 'hex', 1], ['type', 450, 1, 'hex', 1], ['chs_last', 451, 3, 'hex', 1], ['lba_first', 454, 4, 'u32', 1], ['sector_count', 458, 4, 'u32', 1], ['partition_entries[1..3]', 462, 48, 'blob'], ['boot_signature', 510, 2, 'hex']] },
+      fat: { label: 'FAT32 boot sector', where: 'partition 1 · LBA 2048 · byte 0x100000 · 512 B', base: 0x100000, validity: 'valid · 1 note', fields: [
+        ['jmp_boot', 0, 3, 'hex'], ['oem_name', 3, 8, 'ascii'], ['bytes_per_sector', 11, 2, 'u16'], ['sectors_per_cluster', 13, 1, 'u8'], ['reserved_sectors', 14, 2, 'u16'], ['num_fats', 16, 1, 'u8'], ['media', 21, 1, 'hex'], ['sectors_per_track', 24, 2, 'u16'], ['heads', 26, 2, 'u16'], ['hidden_sectors', 28, 4, 'u32'], ['total_sectors_32', 32, 4, 'u32'], ['fat_size_32', 36, 4, 'u32'], ['root_cluster', 44, 4, 'u32'], ['fs_info_sector', 48, 2, 'u16'], ['backup_boot_sector', 50, 2, 'u16'], ['drive_number', 64, 1, 'hex'], ['boot_signature', 66, 1, 'hex'], ['volume_id', 67, 4, 'hex'], ['volume_label', 71, 11, 'ascii'], ['fs_type', 82, 8, 'ascii'], ['signature', 510, 2, 'hex']] }
+    };
+  }
+  fieldValue(b, f) {
+    const [, off, len, type] = f; const s = b.slice(off, off + len);
+    if (type === 'ascii') return Array.from(s).map(c => c >= 32 && c < 127 ? String.fromCharCode(c) : '.').join('');
+    if (type === 'blob') return `<${len} bytes>`; if (type === 'obj') return '{ … }';
+    if (type === 'guid') { const h = Array.from(s).map(x => x.toString(16).padStart(2, '0').toUpperCase()); const rev = (a) => a.reverse().join(''); return `${rev(h.slice(0, 4))}-${rev(h.slice(4, 6))}-${rev(h.slice(6, 8))}-${h.slice(8, 10).join('')}-${h.slice(10).join('')}`; }
+    if (type === 'hex') return Array.from(s).map(x => x.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+    let v = 0n; for (let i = len - 1; i >= 0; i--) v = (v << 8n) | BigInt(s[i]); return v.toString();
+  }
+  commitField(f, text) {
+    const [, off, len, type] = f; const b = this.buf(this.state.struct); const edits = { ...this.state.edits };
+    const set = (i, v) => { if (b[off + i] !== v) { b[off + i] = v; edits[this.state.struct + ':' + (off + i)] = true; } };
+    if (type === 'ascii') { for (let i = 0; i < len; i++) set(i, i < text.length ? text.charCodeAt(i) : 0x20); }
+    else if (type === 'hex') { const p = text.trim().split(/\s+/); for (let i = 0; i < len && i < p.length; i++) { const v = parseInt(p[i], 16); if (!isNaN(v)) set(i, v & 255); } }
+    else if (/^u/.test(type)) { try { let v = BigInt(text.trim()); for (let i = 0; i < len; i++) { set(i, Number(v & 255n)); v >>= 8n; } } catch (e) {} }
+    this.setState({ editing: null, edits });
+  }
+  renderVals() {
+    const S = this.state, set = (p) => () => this.setState(p);
+    const A = 'var(--color-accent)', A3 = 'var(--color-accent-300)', N5 = 'var(--color-neutral-500)', surf = 'var(--color-surface)', none = 'transparent';
+    const ok = 'var(--color-accent-400)', warn = 'var(--color-accent-2-300)';
+    const viewsDef = [['topology', 'Topology'], ['hex', 'Hex'], ['browse', 'Browse'], ['image', 'Image'], ['profiles', 'Profiles'], ['tools', 'Tools'], ['parts', 'Partitions']];
+    const views = viewsDef.map(([id, label]) => ({ label, go: set({ view: id }), color: S.view === id ? A : 'var(--color-neutral-300)', mark: S.view === id ? A : none }));
+    const icons = { nvme: 'M4 7h16v10H4z M8 11h.01 M4 12h16', sata: 'M4 5h16v14H4z M7 15h.01 M4 15h16', usb: 'M12 3v14 M12 21a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3 M12 9l4-2v4 M12 13l-4-2V8 M12 3l1.5 2h-3z', img: 'M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z M14 3v5h5' };
+    const disks = [
+      { id: 'nvme0n1', g: 'Internal', name: 'nvme0n1', sub: 'Samsung SSD 980 · NVMe', size: '500 GB', icon: icons.nvme, title: 'Samsung SSD 980', path: '/dev/nvme0n1', identity: 'S64ANX0R123456 · fw 2B4QFXO7 · 512 B logical / 4096 B physical · not removable', table: 'GPT', health: 'Health OK', hb: 'var(--color-accent-800)', hf: 'var(--color-accent-100)', lastLba: 'LBA 976 773 167', sizeLong: '500.1 GB' },
+      { id: 'sda', g: 'Internal', name: 'sda', sub: 'WDC WD20EZAZ · SATA', size: '2.0 TB', icon: icons.sata, title: 'WDC WD20EZAZ', path: '/dev/sda', identity: 'WD-WX32D81K7ZL2 · fw 01.01A01 · 512 B / 4096 B · rotational', table: 'GPT', health: 'Health OK', hb: 'var(--color-accent-800)', hf: 'var(--color-accent-100)', lastLba: 'LBA 3 907 029 167', sizeLong: '2.0 TB' },
+      { id: 'sdb', g: 'Removable', name: 'sdb', sub: 'SanDisk Ultra · USB', size: '61.5 GB', icon: icons.usb, title: 'SanDisk Ultra', path: '/dev/sdb', identity: '4C530001230812117583 · USB 3.0 · removable · safe backup target', table: 'MBR', health: '1 warning', hb: 'var(--color-accent-2-800)', hf: 'var(--color-accent-2-100)', lastLba: 'LBA 120 176 639', sizeLong: '61.5 GB' },
+      { id: 'img1', g: 'Images', name: 'ws-2026-10-04.stein', sub: '/mnt/backup · LZ4 · complete', size: '188 GB', icon: icons.img, title: 'ws-2026-10-04.stein', path: '/mnt/backup/ws-2026-10-04.stein', identity: 'stein 1.2 · source Samsung SSD 980 S64ANX0R123456 · 500.1 GB · SHA-256 verified', table: 'GPT', health: 'Complete', hb: 'var(--color-accent-800)', hf: 'var(--color-accent-100)', lastLba: 'LBA 976 773 167', sizeLong: '500.1 GB virtual' },
+      { id: 'img2', g: 'Images', name: 'evidence-04.E01', sub: '~/cases/04 · EWF · 3 segments', size: '32 GB', icon: icons.img, title: 'evidence-04.E01', path: '~/cases/04/evidence-04.E01', identity: 'EnCase EWF · stored MD5 matches · 32.0 GB virtual · opened read-only', table: 'MBR', health: 'Verified', hb: 'var(--color-accent-800)', hf: 'var(--color-accent-100)', lastLba: 'LBA 62 533 295', sizeLong: '32.0 GB virtual' }
+    ];
+    const groups = ['Internal', 'Removable', 'Images'].map(g => ({ label: g, items: disks.filter(d => d.g === g).map(d => ({ ...d, select: set({ disk: d.id, node: 0 }), bg: S.disk === d.id ? surf : none, edge: S.disk === d.id ? A : none, iconColor: S.disk === d.id ? A : N5 })) }));
+    const dk = disks.find(d => d.id === S.disk);
+    const disk = { ...dk, healthBg: dk.hb, healthFg: dk.hf };
+
+    // topology
+    const sw = ['var(--color-accent-800)', 'var(--color-accent-700)', 'var(--color-neutral-800)', 'var(--color-neutral-700)'];
+    const nodesDef = [
+      { kind: 'Device', name: dk.title, content: 'GPT · 128 entries', size: dk.sizeLong, health: 'OK', pad: 0, seg: -1, region: 'bytes 0 – 500 107 862 016', rows: [['table', 'GPT · primary LBA 1 · backup LBA 976 773 167'], ['sectors', '512 B logical · 4096 B physical'], ['first usable', 'LBA 34'], ['last usable', 'LBA 976 773 134'], ['bus', 'NVMe · not removable']], notes: [] },
+      { kind: 'Partition 1', name: 'EFI System', content: 'FAT32 "EFI" · clean', size: '512 MiB', health: 'OK', pad: 18, seg: 0, sw: sw[0], region: 'LBA 2 048 – 1 050 623 · 512 MiB', rows: [['type', 'EF00 · EFI System'], ['uuid', '7C2A4F10-9E3B-4C1D-8A2F-0B1E5D6C7A88'], ['content', 'FAT32 · label EFI · 1A2B-3C4D'], ['used', '31 MiB of 511 MiB'], ['capabilities', 'Identify Label Uuid UsedBlocks Read']], hasUsed: true, usedLabel: 'FAT32 used', usedPct: '6%', notes: [] },
+      { kind: 'Partition 2', name: 'Linux filesystem', content: 'LUKS2 → LVM2 → ext4', size: '400 GB', health: 'OK', pad: 18, seg: 1, sw: sw[1], region: 'LBA 1 050 624 – 782 311 423 · 400 GB', rows: [['type', '8300 · Linux filesystem'], ['uuid', '3F1C9A2E-77B4-4D0A-9C55-2E8A1F0B6D21'], ['LUKS2', 'aes-xts-plain64 · argon2id · 2 key slots · unlocked'], ['LVM2', 'VG fedora · PV 1 of 1'], ['volume', 'root · ext4 "fedora" · 1.47 · clean'], ['features', 'has_journal extent 64bit metadata_csum']], hasUsed: true, usedLabel: 'ext4 used', usedPct: '61%', notes: [] },
+      { kind: 'Decrypted', name: 'LUKS2 · unlocked', content: 'LVM2 PV', size: '400 GB', health: 'OK', pad: 36, seg: 1, sw: sw[1], region: 'inside partition 2 · header 16 MiB', rows: [['cipher', 'aes-xts-plain64 · 512-bit'], ['pbkdf', 'argon2id · 4 iters · 1 GiB'], ['key slots', '0 passphrase · 1 recovery'], ['uuid', '9b7e3c1a-2f4d-4e8b-a1c6-0d5f7e9a2b3c']], notes: [] },
+      { kind: 'Volume', name: 'fedora / root', content: 'ext4 "fedora" · 61% used', size: '399.9 GB', health: 'OK', pad: 54, seg: 1, sw: sw[1], region: 'LV root · VG fedora', rows: [['ext4', '1.47 · block 4096 · clean'], ['uuid', '3f1c9a2e-77b4-4d0a-9c55-2e8a1f0be8a1'], ['used', '243.9 GB of 399.9 GB'], ['reader', 'available · case-sensitive']], hasUsed: true, usedLabel: 'ext4 used', usedPct: '61%', notes: [] },
+      { kind: 'Free', name: 'Free space', content: '—', size: '2 MiB', health: '', pad: 18, seg: 2, sw: sw[2], region: 'LBA 782 311 424 – 782 315 519', rows: [['usable', 'yes · fits one 4096-sector partition']], notes: [], noBrowse: true },
+      { kind: 'Partition 3', name: 'Basic data', content: 'NTFS "Data" · dirty', size: '99.6 GB', health: 'Warning', pad: 18, seg: 3, sw: sw[3], region: 'LBA 782 315 520 – 976 773 134 · 99.6 GB', rows: [['type', '0700 · Microsoft basic data'], ['uuid', 'B1E6D2A0-4C7F-4A9E-B3D8-6F0A2C1E9D44'], ['NTFS', '3.1 · cluster 4096 · label Data'], ['used', '52.1 GB of 99.6 GB'], ['capabilities', 'Identify Label Uuid UsedBlocks Read']], hasUsed: true, usedLabel: 'NTFS used', usedPct: '52%', notes: [{ code: 'ntfs.dirty', msg: 'Volume was not cleanly unmounted; Windows fast-startup may hold it. Read-only access is safe.', fg: warn }], noRepair: true },
+      { kind: 'Metadata', name: 'GPT backup header + entries', content: 'LBA 976 773 135 – 976 773 167', size: '16.5 KiB', health: 'OK', pad: 18, seg: -1, sw: 'var(--color-neutral-600)', region: 'LBA 976 773 135 – 976 773 167', rows: [['backup header', 'LBA 976 773 167 · CRC D4196E0A ok'], ['entries copy', 'LBA 976 773 135 · 32 sectors']], notes: [], noBrowse: true }
+    ];
+    const expert = this.props.expertMode ?? true;
+    const visible = nodesDef.map((n, i) => ({ ...n, i })).filter(n => expert || n.kind !== 'Metadata');
+    const nodes = visible.map(n => ({ ...n, select: set({ node: n.i }), bg: S.node === n.i ? surf : none, swatch: n.sw || 'var(--color-neutral-500)', healthFg: n.health === 'Warning' ? warn : n.health ? 'var(--color-neutral-400)' : none, healthDot: n.health === 'Warning' ? warn : n.health ? ok : none }));
+    const sel = nodesDef[S.node] || nodesDef[0];
+    const selVals = { ...sel, rows: sel.rows.map(([k, v]) => ({ k, v })), hasUsed: !!sel.hasUsed, noBrowse: !!sel.noBrowse, noRepair: sel.noRepair !== false };
+    const segDefs = [{ label: 'EFI · 512 MiB', flex: '0 0 0', minW: '92px', bg: sw[0], node: 1 }, { label: 'Linux filesystem · LUKS2 → LVM2 → ext4 · 400 GB', flex: '400', minW: '0', bg: sw[1], node: 2 }, { label: '', flex: '0 0 0', minW: '6px', bg: 'repeating-linear-gradient(135deg,var(--color-neutral-900) 0 3px,var(--color-neutral-800) 3px 6px)', node: 5 }, { label: 'Data · NTFS · 99.6 GB', flex: '100', minW: '0', bg: sw[3], node: 6 }];
+    const segments = segDefs.map(s => { const on = S.node === s.node || (S.node === 3 && s.node === 2) || (S.node === 4 && s.node === 2); return { ...s, title: s.label, select: set({ node: s.node }), edge: on ? A : none, fg: on ? 'var(--color-accent-100)' : 'var(--color-neutral-200)' }; });
+
+    // hex
+    const defs = this.structDefs(); const sd = defs[S.struct]; const b = this.buf(S.struct);
+    const fieldAt = (o) => sd.fields.filter(f => o >= f[1] && o < f[1] + f[2]).sort((x, y) => x[2] - y[2])[0];
+    const selF = S.field != null ? sd.fields.find(f => f[0] === S.field) : null;
+    const rows = []; for (let r = 0; r < 32; r++) { const off = r * 16; const cells = []; let ascii = '';
+      for (let i = 0; i < 16; i++) { const o = off + i; const v = b[o]; const inSel = selF && o >= selF[1] && o < selF[1] + selF[2]; const dirty = S.edits[S.struct + ':' + o];
+        cells.push({ hex: v.toString(16).padStart(2, '0').toUpperCase(), bg: inSel ? 'var(--color-accent-800)' : none, fg: dirty ? A3 : inSel ? 'var(--color-accent-100)' : v === 0 ? 'var(--color-neutral-600)' : 'var(--color-neutral-200)', pick: () => { const f = fieldAt(o); this.setState({ field: f ? f[0] : null, editing: null }); } });
+        ascii += v >= 32 && v < 127 ? String.fromCharCode(v) : '·'; }
+      rows.push({ off: (sd.base + off).toString(16).padStart(8, '0').toUpperCase(), cells, ascii }); }
+    const fields = sd.fields.map(f => { const [name, off, len, type, depth] = f; const val = this.fieldValue(b, f); const on = S.field === name; const editable = type !== 'blob' && type !== 'obj' && type !== 'guid';
+      const dirty = [...Array(len).keys()].some(i => S.edits[S.struct + ':' + (off + i)]);
+      return { name, type, off, len, pad: 12 + (depth || 0) * 16, offHex: '0x' + (sd.base + off).toString(16).toUpperCase(), value: val, display: type === 'ascii' ? `"${val}"` : val, vfg: dirty ? A3 : type === 'blob' || type === 'obj' ? N5 : 'var(--color-neutral-100)', bg: on ? 'var(--color-accent-900)' : none, ok: dirty ? 'edited' : 'ok', okFg: dirty ? A3 : 'var(--color-neutral-600)', editing: S.editing === name, notEditing: S.editing !== name,
+        pick: () => this.setState({ field: name }), edit: editable ? () => this.setState({ field: name, editing: name }) : () => {}, commit: (e) => this.commitField(f, e.target.value), key: (e) => { if (e.key === 'Enter') this.commitField(f, e.target.value); if (e.key === 'Escape') this.setState({ editing: null }); } }; });
+    const structs = Object.keys(defs).map(k => ({ label: defs[k].label, select: set({ struct: k, field: null, editing: null }), fg: S.struct === k ? A : 'var(--color-neutral-300)', ring: S.struct === k ? 'inset 0 0 0 1px ' + A : 'none' }));
+    const dirtyCount = Object.keys(S.edits).filter(k => k.startsWith(S.struct + ':')).length;
+    const selFieldLine = selF ? `${selF[0]} · ${selF[3]} · @0x${(sd.base + selF[1]).toString(16).toUpperCase()} · ${selF[2]} B · ${this.fieldValue(b, selF)}` : 'no field selected';
+
+    // browser
+    const dirsDef = [['/', 0, '▾'], ['bin', 1, ''], ['boot', 1, '▸'], ['etc', 1, '▾', true], ['default', 2, ''], ['ssh', 2, ''], ['systemd', 2, '▸'], ['home', 1, '▸'], ['usr', 1, '▸'], ['var', 1, '▸']];
+    const dirs = dirsDef.map(([name, d, caret, on]) => ({ name, caret, pad: 8 + d * 14, bg: on ? 'var(--color-accent-900)' : none, fg: on ? 'var(--color-accent-100)' : 'var(--color-neutral-200)' }));
+    const fi = 'M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z M14 3v5h5', fo = 'M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z', ln = 'M10 14a4 4 0 0 0 5.6 0l2-2a4 4 0 0 0-5.6-5.6l-1 1 M14 10a4 4 0 0 0-5.6 0l-2 2a4 4 0 0 0 5.6 5.6l1-1';
+    const entriesDef = [['default', 'd', '—', '2026-09-28 22:14', 'drwxr-xr-x'], ['ssh', 'd', '—', '2026-09-30 08:02', 'drwxr-xr-x'], ['systemd', 'd', '—', '2026-09-28 22:14', 'drwxr-xr-x'], ['crypttab', 'f', '112 B', '2025-11-02 09:41', '-rw-------'], ['fstab', 'f', '724 B', '2026-09-28 22:14', '-rw-r--r--', true], ['hostname', 'f', '12 B', '2025-11-02 09:41', '-rw-r--r--'], ['hosts', 'f', '158 B', '2025-11-02 09:41', '-rw-r--r--'], ['localtime', 'l', '→ ../usr/share/zoneinfo/Europe/Kyiv', '2025-11-02 09:41', 'lrwxrwxrwx'], ['os-release', 'l', '→ ../usr/lib/os-release', '2025-11-02 09:41', 'lrwxrwxrwx'], ['passwd', 'f', '2.9 KiB', '2026-09-12 17:30', '-rw-r--r--'], ['shadow', 'f', '1.4 KiB', '2026-09-12 17:30', '----------'], ['sudoers', 'f', '4.3 KiB', '2025-11-02 09:41', '-r--r-----']];
+    const entries = entriesDef.map(([name, t, size, mtime, mode, on]) => ({ name, size: t === 'l' ? '—' : size, link: t === 'l' ? size : '', mtime, mode, icon: t === 'd' ? fo : t === 'l' ? ln : fi, iconFg: t === 'd' ? 'var(--color-accent-400)' : N5, bg: on ? 'var(--color-accent-900)' : none }));
+
+    // image report
+    const rep = [['Probe source', 'GPT · 3 partitions · 3 filesystems', 'ok', 0, '0.4 s'], ['Allocation maps', 'used-blocks for FAT32, ext4, NTFS', 'ok', 0, '2.1 s'], ['EFI System', '31 MiB used of 512 MiB', 'ok', 1, ''], ['root (ext4)', '243.9 GB used · via LUKS2 passphrase', 'ok', 1, ''], ['Data (NTFS)', '52.1 GB used · dirty flag noted', 'warn', 1, ''], ['Read and compress', 'LZ4 · 1 MiB chunks · 2 unreadable sectors zero-filled', 'run', 0, '7 min 12 s'], ['Verify level 3', 'full content + SHA-256', 'pend', 0, '']];
+    const report = rep.map(([title, detail, st, d, dur]) => ({ title, detail, dur, pad: 8 + d * 18, dot: st === 'ok' ? ok : st === 'warn' ? warn : st === 'run' ? A : 'var(--color-neutral-800)', glow: st === 'run' ? '0 0 8px ' + A : 'none', anim: st === 'run' ? 'stein-pulse 1.4s ease-in-out infinite' : 'none', fg: st === 'pend' ? N5 : 'var(--color-neutral-200)' }));
+
+    // profiles
+    const profiles = [
+      { kicker: 'Nightly', name: 'Workstation', desc: 'Whole NVMe to the backup HDD before every big upgrade.', disk: 'Samsung SSD 980 · present', diskDot: ok, selector: 'serial S64ANX0R123456', image: 'ws.stein · complete', imgDot: ok, made: '2 days ago · 188 GB', fits: 'yes · same size', level: '2', policy: 'lock target to identity · verify before restore · unmount first · repair GPT backup on larger disk', opacity: 1, disabled: false, noImage: false },
+      { kicker: 'Field kit', name: 'Laptop recovery', desc: 'Restore the known-good image onto whatever 1 TB disk is plugged in.', disk: 'not present', diskDot: 'var(--color-neutral-700)', selector: 'model "KXG60ZNV1T02" · 1 TB ±2%', image: 'laptop-golden.stein · complete', imgDot: ok, made: '41 days ago · 61 GB', fits: '— (no disk)', level: '3', policy: 'require elevation · allow smaller target · refuse while mounted', opacity: 0.75, disabled: true, noImage: false }
+    ];
+    const scanCells = Array.from({ length: 192 }, (_, i) => i === 158 || i === 173 ? warn : i % 7 === 3 ? 'var(--color-accent-700)' : 'var(--color-accent-800)');
+    const previewNodes = [
+      { name: 'EFI System', type: 'EF00', size: '512 MiB', change: '', pad: 0, swatch: sw[0] }, { name: 'Linux filesystem', type: '8300', size: '400 GB', change: '', pad: 0, swatch: sw[1] }, { name: 'Free space', type: '—', size: '2 MiB', change: '', pad: 0, swatch: sw[2] },
+      { name: 'Data → Archive', type: '0700', size: '99.6 → 59.6 GB', change: 'rename · shrink', pad: 0, swatch: sw[3], bg: 'var(--color-accent-900)', changeFg: A3 }, { name: 'Scratch', type: '8300', size: '40 GB', change: 'new', pad: 0, swatch: 'var(--color-accent-500)', bg: 'var(--color-accent-900)', changeFg: A3 }
+    ].map(n => ({ bg: none, changeFg: N5, ...n }));
+    const ops = [{ n: '1', title: 'UpdatePartition 3 · name', detail: '"Data" → "Archive"', destructive: false }, { n: '2', title: 'UpdatePartition 3 · bounds', detail: 'lastLba 976 773 134 → 898 629 263 · shrinks below NTFS size', destructive: true }, { n: '3', title: 'AddPartition 4', detail: 'LBA 898 629 264 – 976 773 134 · 8300 · "Scratch"', destructive: false }];
+
+    const el = this.props.elevated ?? true;
+    return {
+      views, groups, disk, segments, nodes, sel: selVals, goHex: set({ view: 'hex' }), goBrowse: set({ view: 'browse' }),
+      isTopology: S.view === 'topology', isHex: S.view === 'hex', isBrowse: S.view === 'browse', isImage: S.view === 'image', isProfiles: S.view === 'profiles', isTools: S.view === 'tools', isParts: S.view === 'parts',
+      elevated: el, notElevated: !el,
+      structs, struct: sd, rows, fields, dirtyCount, clean: dirtyCount === 0, selFieldLine, revert: () => { this._bufs = {}; this.setState({ edits: {}, editing: null }); },
+      dirs, entries, report, profiles, scanCells, previewNodes, ops,
+      confirm: S.confirm, openConfirm: set({ confirm: true }), closeConfirm: set({ confirm: false })
+    };
+  }
+}
+</script>
+</body>
+</html>
