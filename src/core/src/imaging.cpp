@@ -245,6 +245,7 @@ namespace {
 void addStats(Report& r, const image::CopyStats& s) {
     r.addDetail("read", sizeText(s.bytesRead));
     if (s.bytesWritten) r.addDetail("written", sizeText(s.bytesWritten));
+    if (s.identicalChunks) r.addDetail("already identical", std::to_string(s.identicalChunks) + " chunks · " + sizeText(s.identicalBytes) + " not rewritten (" + sizeText(s.compareBytesRead) + " read to compare)");
     r.addDetail("chunks", std::to_string(s.chunks) + " (" + std::to_string(s.zeroChunks) + " all-zero)");
     if (s.freeBytesSkipped) r.addDetail("free space skipped", sizeText(s.freeBytesSkipped));
     if (s.unreadableSectors) r.addDetail("unreadable sectors", std::to_string(s.unreadableSectors) + " zero-filled");
@@ -386,6 +387,7 @@ Expected<image::RestoreResult> runRestore(const RestoreForm& form, BlockDevice& 
             return finishError(Error(ErrorCategory::InvalidArgument, "target is smaller than the image (" + sizeText(target.size()) + " < " + sizeText(src->size()) + ")"));
         image::CopyOptions co;
         co.zeroPolicy = form.zeros;
+        co.skipIdentical = form.skipIdentical;
         if (form.zeros == image::ZeroPolicy::SkipInside) {
             auto keep = image::keepRegionsOf(src);
             if (!keep) return finishError(keep.error());
@@ -410,6 +412,8 @@ Expected<image::RestoreResult> runRestore(const RestoreForm& form, BlockDevice& 
     ro.verifyPayloadFirst = form.verifyFirst;
     ro.allowSmallerTarget = form.allowSmaller;
     ro.zeroPolicy = form.zeros;
+    ro.skipIdentical = form.skipIdentical;
+    step.addDetail("already-identical chunks", form.skipIdentical ? "compared first, not rewritten" : "rewritten");
     const ZeroPlanText zp = describeZeroPlan(form);
     step.addDetail("zero ranges", zp.ok ? zp.summary : (form.zeros == image::ZeroPolicy::Write ? "written" : "skipped"));
     auto r = image::restoreImage(form.image, target, ro, progress, form.passphrase);

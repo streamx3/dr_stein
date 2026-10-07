@@ -167,6 +167,7 @@ Item {
                         }
                         StCheck { text: "Verify the image's checksums before writing anything"; checked: view.controller.restoreVerifyFirst; onToggled: view.controller.restoreVerifyFirst = checked }
                         StCheck { text: "Allow a smaller target (writes what fits; the tail is lost)"; checked: view.controller.restoreAllowSmaller; onToggled: view.controller.restoreAllowSmaller = checked }
+                        StCheck { text: "Do not rewrite what the target already holds"; sublabel: "Each chunk is read from the target first and skipped when it already matches. Same result, fewer writes; when the target turns out to differ almost everywhere, comparing pauses and only one chunk in 64 is checked, so the cost stays small."; checked: view.controller.restoreSkipIdentical; onToggled: view.controller.restoreSkipIdentical = checked }
                         ColumnLayout { Layout.fillWidth: true; spacing: 4
                             Kicker { text: "Zero ranges of the image"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
                             StSegmented {

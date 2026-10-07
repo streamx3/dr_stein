@@ -83,6 +83,7 @@ struct RestoreForm {
     bool verifyFirst = true;
     bool allowSmaller = false;
     stein::image::ZeroPolicy zeros = stein::image::ZeroPolicy::Write;   // Write: byte-identical; SkipInside: zero only table-free space; Skip: nothing
+    bool skipIdentical = true;     // compare before writing; chunks the target already holds are not rewritten
     std::string passphrase;
 };
 // The zero plan in words, for the confirmation: "3.1 MB zeroed in free space · 135 MB kept inside partitions (GPT, 2 partitions)".

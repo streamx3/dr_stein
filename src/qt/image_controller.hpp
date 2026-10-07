@@ -56,6 +56,7 @@ class ImageController : public QObject {
     Q_PROPERTY(bool restoreVerifyFirst READ restoreVerifyFirst WRITE setRestoreVerifyFirst NOTIFY formChanged)
     Q_PROPERTY(bool restoreAllowSmaller READ restoreAllowSmaller WRITE setRestoreAllowSmaller NOTIFY formChanged)
     Q_PROPERTY(QString restoreZeros READ restoreZeros WRITE setRestoreZeros NOTIFY formChanged)   // "write" | "gaps" | "skip"
+    Q_PROPERTY(bool restoreSkipIdentical READ restoreSkipIdentical WRITE setRestoreSkipIdentical NOTIFY formChanged)
     Q_PROPERTY(QString restoreZeroPlanText READ restoreZeroPlanText NOTIFY formChanged)        // computed from the chunk map
     Q_PROPERTY(bool restoreZerosDefaulted READ restoreZerosDefaulted NOTIFY formChanged)       // the mode came from the target kind, not from the user
     Q_PROPERTY(QString restoreImagePath READ restoreImagePath WRITE setRestoreImagePath NOTIFY formChanged)
@@ -128,6 +129,8 @@ public:
     bool restoreAllowSmaller() const { return m_restore.allowSmaller; }
     void setRestoreAllowSmaller(bool on);
     QString restoreZeros() const;
+    bool restoreSkipIdentical() const { return m_restore.skipIdentical; }
+    void setRestoreSkipIdentical(bool on) { m_restore.skipIdentical = on; Q_EMIT formChanged(); }
     void setRestoreZeros(const QString& mode);
     QString restoreZeroPlanText() const { return m_zeroPlanText; }
     bool restoreZerosDefaulted() const { return !m_zerosExplicit; }

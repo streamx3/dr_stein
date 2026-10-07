@@ -77,6 +77,10 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
       device allows (file holes, BLKZEROOUT, unmap + read-back); the copy engine's zero
       writes go through it, so a byte-identical restore into a raw file is instant and
       onto a disk that honours unmap costs a read instead of a write.
+- [x] K6 Adaptive compare-before-write in libstein (`skipIdentical`): chunks the
+      target already holds are not rewritten; on by default for restores; CLI
+      `--rewrite-all`, app checkbox. Restoring a stick's own image back onto it now
+      costs reads, not writes.
 - [x] K4 Same default in the CLI: `stein image restore` without `--zeros` picks
       `gaps` for a removable target (per `Platform::describe().removable`) and
       `write` otherwise, and says so in the plan line. Checked on a file target;
