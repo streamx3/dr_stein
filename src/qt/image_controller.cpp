@@ -358,6 +358,10 @@ void ImageController::setRestoreAllowSmaller(bool on) {
     m_restore.allowSmaller = on;
     Q_EMIT formChanged();
 }
+void ImageController::setRestoreSkipZeros(bool on) {
+    m_restore.skipZeroChunks = on;
+    Q_EMIT formChanged();
+}
 void ImageController::setRestoreImagePath(const QString& p) {
     m_restore.image = ss(p);
     m_restore.passphrase.clear();

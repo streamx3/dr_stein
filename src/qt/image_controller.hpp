@@ -55,6 +55,7 @@ class ImageController : public QObject {
     Q_PROPERTY(QVariantMap restoreTarget READ restoreTarget NOTIFY formChanged)
     Q_PROPERTY(bool restoreVerifyFirst READ restoreVerifyFirst WRITE setRestoreVerifyFirst NOTIFY formChanged)
     Q_PROPERTY(bool restoreAllowSmaller READ restoreAllowSmaller WRITE setRestoreAllowSmaller NOTIFY formChanged)
+    Q_PROPERTY(bool restoreSkipZeros READ restoreSkipZeros WRITE setRestoreSkipZeros NOTIFY formChanged)
     Q_PROPERTY(QString restoreImagePath READ restoreImagePath WRITE setRestoreImagePath NOTIFY formChanged)
     Q_PROPERTY(bool canRestore READ canRestore NOTIFY formChanged)
     Q_PROPERTY(QString restoreMessage READ restoreMessage NOTIFY formChanged)
@@ -124,6 +125,8 @@ public:
     void setRestoreVerifyFirst(bool on);
     bool restoreAllowSmaller() const { return m_restore.allowSmaller; }
     void setRestoreAllowSmaller(bool on);
+    bool restoreSkipZeros() const { return m_restore.skipZeroChunks; }
+    void setRestoreSkipZeros(bool on);
     QString restoreImagePath() const { return QString::fromStdString(m_restore.image.string()); }
     void setRestoreImagePath(const QString& p);
     bool canRestore() const;

@@ -106,3 +106,71 @@ nothing can avoid that short of not restoring the zeros, which is the expert fla
   read-back compare; with 3 above the read already happens.
 - `WinDisk` has neither `discard` nor `flush`-with-`FlushFileBuffers` semantics worth
   checking in the same session.
+
+## Addendum (2026-10-08): skipping zeros on purpose, and SSDs
+
+The first part of this note is about making a byte-identical restore fast. There is
+a second, simpler stance, and for a disposable USB 2.0 stick it is the right one:
+do not write the zeros at all. `RestoreOptions::writeZeroChunks = false` has been
+in libstein from the start; the app now exposes it as "Write only the non-zero
+ranges" in the Restore form, with the trade-offs spelled out and recorded in the
+confirmation and the report.
+
+### What skipping zeros does and does not do
+
+- **Filesystems come back complete.** Every allocated block is in a non-zero chunk
+  (or a stored chunk) and gets written. Free space is free space; the filesystem
+  never reads it. This is exactly what partclone and Clonezilla do by default, so
+  it is well-trodden ground.
+- **Old bytes stay where the image is zero.** Inside a partition that means the
+  previous occupant's deleted files remain recoverable with undelete tools (data
+  remanence). That is the security cost, and it is the only one for the filesystem
+  itself.
+- **Gaps between partitions and the space after the last partition keep their old
+  contents too.** If the previous layout had a partition where the new one has a
+  gap, its superblock survives and probing tools (blkid, udev, LVM and mdraid
+  auto-assembly on Linux, Dr Stein's own probe) may report a ghost filesystem or a
+  stale PV/RAID member there. This is the practical risk, more likely to bite a
+  hobbyist than the security one. The cheap mitigation is to still zero everything
+  *outside* partitions (gaps, the end-of-disk area), which is a few MiB, and skip
+  zeros only *inside* partitions. That needs a region-aware zero policy in
+  `copyDevice` (the image's manifest already carries the topology), a small libstein
+  change; it is the version I would make the default. Until then the option is
+  all-or-nothing and the warning says so.
+- **Verification after restore** must compare only the non-zero chunks; a byte-wise
+  compare of the whole device would flag every skipped range. The restore report
+  already distinguishes "written" from "read".
+
+### SSDs: does writing zeros release anything? Does skipping them harm anything?
+
+No and no.
+
+- An SSD does not free a block because zeros were written to it. The controller
+  stores the zeros (some controllers detect all-zero writes and dedupe them, which
+  is why "writing zeros" can look fast on a modern NVMe, but that is an
+  implementation detail, not a release). Blocks are released only by TRIM/UNMAP,
+  which the *filesystem* issues for its free space after mount (`fstrim`, mount
+  option `discard`, macOS does it periodically on APFS/HFS+ internal SSDs, Windows
+  "Optimize Drives"). The zeros our restore writes into free space get trimmed
+  away later anyway, which means they were pure write amplification.
+- So skipping zero writes on an SSD is strictly better for the device: fewer
+  program/erase cycles, less write amplification, no effect on block release
+  either way. If you want the free space released right after a restore, the
+  correct action is a TRIM of the free space (`fstrim` on Linux; on macOS it
+  happens on its own for internal drives; external USB SSDs mostly never get
+  trimmed through USB mass storage, only through UAS with UNMAP support), not a
+  zero write.
+- Cheap USB sticks have no TRIM at all and the weakest flash; writing 8 GB of zeros
+  to one is the single worst thing to do to it short of the capacity test. Skipping
+  zeros there is both faster and kinder.
+- The one case where writing zeros is the right thing: you need the target to be
+  byte-identical (forensic copy, a disk that will be imaged again and compared, a
+  disk you are about to hand over), or the previous contents must not be
+  recoverable. Those are the default, deliberately.
+
+### Recommendation
+
+Keep "write zeros" as the default (correct for strangers' disks), offer "write only
+the non-zero ranges" as it is now, and in the libstein session make it region-aware:
+zero the gaps and metadata areas always, skip zeros inside partitions when asked.
+With that, the skip option can become the default for removable drives.

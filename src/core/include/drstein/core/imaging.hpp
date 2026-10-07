@@ -82,6 +82,7 @@ struct RestoreForm {
     std::filesystem::path image;
     bool verifyFirst = true;
     bool allowSmaller = false;
+    bool skipZeroChunks = false;   // leave the target untouched where the image is all-zero (fast; the target keeps old bytes there)
     std::string passphrase;
 };
 // What an image expects to be restored onto. Whole-device images go to devices, partition

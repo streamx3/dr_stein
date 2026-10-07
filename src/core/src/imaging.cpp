@@ -359,7 +359,9 @@ Expected<image::RestoreResult> runRestore(const RestoreForm& form, BlockDevice& 
         if (target.size() < src->size() && !form.allowSmaller)
             return finishError(Error(ErrorCategory::InvalidArgument, "target is smaller than the image (" + sizeText(target.size()) + " < " + sizeText(src->size()) + ")"));
         image::CopyOptions co;
+        co.skipZeroChunksOnWrite = form.skipZeroChunks;
         if (target.size() < src->size()) co.limit = target.size();
+        step.addDetail("zero ranges", form.skipZeroChunks ? "skipped: the target keeps whatever it held there" : "written");
         auto r = image::copyDevice(*src, target, co, progress);
         if (!r) return finishError(r.error());
         image::RestoreResult out;
@@ -374,6 +376,8 @@ Expected<image::RestoreResult> runRestore(const RestoreForm& form, BlockDevice& 
     image::RestoreOptions ro;
     ro.verifyPayloadFirst = form.verifyFirst;
     ro.allowSmallerTarget = form.allowSmaller;
+    ro.writeZeroChunks = !form.skipZeroChunks;
+    step.addDetail("zero ranges", form.skipZeroChunks ? "skipped: the target keeps whatever it held there" : "written");
     auto r = image::restoreImage(form.image, target, ro, progress, form.passphrase);
     if (!r) return finishError(r.error());
     addStats(step, r->stats);

@@ -269,3 +269,45 @@ TEST_CASE("a partition image carries its provenance and restores into a partitio
     REQUIRE(target->readAt(0, a));
     CHECK(std::all_of(a.begin(), a.end(), [](std::byte x) { return x == std::byte{0}; }));   // nothing outside the slice
 }
+
+TEST_CASE("skipping zero chunks leaves the target's old bytes in the image's zero ranges") {
+    auto disk = drstein::test::compositeDisk();
+    drstein::test::TempDir tmp;
+    const auto file = drstein::test::writeDevice(*disk.device, tmp.file("disk.img"));
+    auto opened = openSource(describeImageFile(file).value(), OpenOptions{});
+    REQUIRE(opened);
+    CreateImageForm form;
+    form.destination = tmp.file("skip.stein");
+    form.chunkSizeText = "1 MiB";
+    form.verifyAfter = false;
+    auto plan = validate(form, *opened);
+    REQUIRE(plan);
+    NullProgressSink sink;
+    Progress progress(sink);
+    Report report("Create");
+    REQUIRE(runCreate(*opened, *plan, progress, report));
+
+    // A target full of 0xAA: the 1 MiB gap between the partitions is all-zero in the image.
+    auto target = std::make_shared<MemoryDevice>(disk.device->size(), 512);
+    std::vector<std::byte> junk(disk.device->size(), std::byte{0xAA});
+    REQUIRE(target->writeAt(0, junk));
+    RestoreForm rf;
+    rf.image = form.destination;
+    rf.skipZeroChunks = true;
+    Report rreport("Restore");
+    auto r = runRestore(rf, *target, progress, rreport);
+    REQUIRE(r);
+    CHECK(r->stats.bytesWritten < disk.device->size());
+    std::vector<std::byte> a(4096), b(4096);
+    REQUIRE(target->readAt(disk.part2Offset, a));
+    REQUIRE(disk.device->readAt(disk.part2Offset, b));
+    CHECK(a == b);                                              // data chunks restored
+    const ByteCount gap = disk.part1Offset + disk.part1Size + 64 * KiB;
+    REQUIRE(target->readAt(gap, a));
+    CHECK(a[0] == std::byte{0xAA});                             // zero range left alone
+    rf.skipZeroChunks = false;
+    Report rreport2("Restore");
+    REQUIRE(runRestore(rf, *target, progress, rreport2));
+    REQUIRE(target->readAt(gap, a));
+    CHECK(a[0] == std::byte{0});                                // the default writes the zeros
+}

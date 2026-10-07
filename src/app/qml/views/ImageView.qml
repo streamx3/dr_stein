@@ -167,6 +167,11 @@ Item {
                         }
                         StCheck { text: "Verify the image's checksums before writing anything"; checked: view.controller.restoreVerifyFirst; onToggled: view.controller.restoreVerifyFirst = checked }
                         StCheck { text: "Allow a smaller target (writes what fits; the tail is lost)"; checked: view.controller.restoreAllowSmaller; onToggled: view.controller.restoreAllowSmaller = checked }
+                        StCheck {
+                            text: "Write only the non-zero ranges"
+                            sublabel: "Much faster on a slow drive and gentler on flash: ranges that are zero in the image are left as they are on the target. The filesystems come back complete, but old bytes stay recoverable in free space and in gaps between partitions, and a stale filesystem signature in such a gap can confuse other tools. Off, the target becomes byte-identical to the image."
+                            checked: view.controller.restoreSkipZeros; onToggled: view.controller.restoreSkipZeros = checked
+                        }
                         Text { Layout.fillWidth: true; visible: view.controller.restoreMessage.length > 0; text: view.controller.restoreMessage; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.warning; wrapMode: Text.WordWrap }
                         RowLayout { spacing: 6; Layout.topMargin: Theme.space3
                             StButton { text: "Restore\u2026"; variant: "danger"; enabled: view.controller.canRestore && !JobRunner.running; onClicked: view.confirmRestore() }

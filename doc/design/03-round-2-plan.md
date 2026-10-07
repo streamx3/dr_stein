@@ -63,6 +63,12 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
       macOS, Linux, Windows instead of a Refresh button?
 - [r] H3 disk vs rdisk on macOS; /dev/sda1 on Linux without mounting.
 
+## K. Restore: write only the non-zero ranges
+- [x] K1 Option in the Restore form ("Write only the non-zero ranges"), warned,
+      recorded in the confirmation and the report; core test covers both modes.
+      Region-aware variant (zero gaps, skip inside partitions) is a libstein item,
+      see `04-restore-zero-chunks.md` addendum.
+
 ## J. Someday (research)
 - [ ] J1 Full Disk Access has to be granted again after every rebuild, and System
       Settings' "Quit & Reopen" did nothing. Why: TCC stores the grant against the
