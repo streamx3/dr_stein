@@ -73,6 +73,10 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
 - [x] K3 "Zero free space only" is the default when the target is a removable drive;
       byte-identical stays the default for fixed disks and files; an explicit choice
       sticks for that image.
+- [x] K5 `BlockDevice::zeroRange()` in libstein: guaranteed zeros as cheaply as the
+      device allows (file holes, BLKZEROOUT, unmap + read-back); the copy engine's zero
+      writes go through it, so a byte-identical restore into a raw file is instant and
+      onto a disk that honours unmap costs a read instead of a write.
 - [x] K4 Same default in the CLI: `stein image restore` without `--zeros` picks
       `gaps` for a removable target (per `Platform::describe().removable`) and
       `write` otherwise, and says so in the plan line. Checked on a file target;

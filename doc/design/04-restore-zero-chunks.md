@@ -209,8 +209,8 @@ reason.
 
 | Step | State |
 |---|---|
-| 1. `zeroRange()` with a guaranteed-zero contract per device (BLKZEROOUT, hole punching, unmap + read-back) | not started; still the path to a *fast byte-identical* restore |
-| 2. `copyDevice` routes zero chunks through it | superseded for the common case by `ZeroPolicy::SkipInside` (done); still wanted for `Write` |
+| 1. `zeroRange()` with a guaranteed-zero contract per device | done: `BlockDevice::zeroRange()` (default: zero writes); `FileDevice` punches holes (`fallocate` / `F_PUNCHHOLE` / `FSCTL_SET_ZERO_DATA`, ragged ends written); Linux disks `BLKZEROOUT`; macOS disks `DKIOCUNMAP` then read-back, zeros written where the unmap left data; Windows disks DSM TRIM then read-back; slice and concat forward; memory zero-fills. Ranges are split at the device's alignment so unaligned heads and tails never defeat the fast path. Verified on macOS for files (272 384 → 18 432 allocated blocks after restoring a 94 %-zero image, 0.03 s, byte-identical); the Linux and Windows disk paths are written, not run. |
+| 2. `copyDevice` routes zero chunks through it | done: every zero chunk under `Write`, and every outside part under `SkipInside`, goes through `zeroRange()`; `discardZeroChunks` is a no-op kept for the ABI |
 | 3. Adaptive skip-identical chunks | not started |
 | 4. Reader exposes zero chunks | done in the form of `SteinReader::isStored()`, used by the planner |
 | 5. Expert "skip all zeros" flag | done (`ZeroPolicy::Skip`, "Skip them") |
