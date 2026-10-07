@@ -58,10 +58,26 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
 
 ## H. Research (by request, no fix unless trivial)
 - [r] H1 Restore of a 178 kB image took as long as a full 8 GB write. Why, and what
-      the options are (libstein side).
+      the options are (libstein side). → full note: `04-restore-zero-chunks.md`.
 - [x] H2 Hot-plug: can the app be told about insert / remove / mount / unmount on
       macOS, Linux, Windows instead of a Refresh button?
 - [r] H3 disk vs rdisk on macOS; /dev/sda1 on Linux without mounting.
+
+## J. Someday (research)
+- [ ] J1 Full Disk Access has to be granted again after every rebuild, and System
+      Settings' "Quit & Reopen" did nothing. Why: TCC stores the grant against the
+      app's code-signing identity. A debug build is ad-hoc signed by the linker, and
+      an ad-hoc signature's designated requirement is the binary's own hash, which
+      changes with every build, so macOS sees a different app each time. The fix is
+      the standard one: sign the bundle with a stable certificate (a self-made
+      "Code Signing" certificate from Keychain Access is enough for development;
+      Developer ID for releases) so the requirement becomes "bundle id + certificate"
+      and survives rebuilds; `codesign --sign "Dr Stein Dev" --force --deep` in a
+      post-build step. "Quit & Reopen" goes through Launch Services: it sends the
+      Apple quit event to the running app and relaunches the bundle. A copy started
+      from a terminal with sudo is a root process outside the user's Launch Services
+      session, so neither half can reach it; a normally launched (double-clicked)
+      copy should respond. Not a blocker; revisit when packaging.
 
 ## I. Tables
 - [x] I1 Browse: size / modified / mode columns drift with their text; make them
