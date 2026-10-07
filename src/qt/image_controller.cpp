@@ -321,6 +321,18 @@ QVariantList ImageController::restoreTargets() const {
 void ImageController::setRestoreTargetId(const QString& id) {
     if (id == m_restoreTargetId) return;
     m_restoreTargetId = id;
+    // Removable drives default to zeroing only the table's free space (fast, gentle on flash,
+    // no stale signatures in gaps); everything else defaults to byte-identical. An explicit
+    // choice for this image wins over the default.
+    if (!m_zerosExplicit) {
+        const auto* t = Workspace::instance()->descriptor(ss(id.section('#', 0, 0)));
+        const bool removable = t && t->disk && t->disk->removable;
+        const auto wanted = removable ? stein::image::ZeroPolicy::SkipInside : stein::image::ZeroPolicy::Write;
+        if (m_restore.zeros != wanted) {
+            m_restore.zeros = wanted;
+            reloadRestoreScope();
+        }
+    }
     // The sidebar marks the target in red for as long as it is the target.
     Workspace::instance()->setRestoreTarget(m_mode == "restore" ? id.section('#', 0, 0) : QString());
     Q_EMIT formChanged();
@@ -371,12 +383,15 @@ QString ImageController::restoreZeros() const {
 
 void ImageController::setRestoreZeros(const QString& mode) {
     m_restore.zeros = mode == "skip" ? stein::image::ZeroPolicy::Skip : mode == "gaps" ? stein::image::ZeroPolicy::SkipInside : stein::image::ZeroPolicy::Write;
+    m_zerosExplicit = true;
     reloadRestoreScope();
     Q_EMIT formChanged();
 }
 void ImageController::setRestoreImagePath(const QString& p) {
     m_restore.image = ss(p);
     m_restore.passphrase.clear();
+    m_zerosExplicit = false;
+    m_restore.zeros = stein::image::ZeroPolicy::Write;
     reloadRestoreScope();
     setRestoreTargetId({});   // the target list changes with the image's scope
     Q_EMIT formChanged();

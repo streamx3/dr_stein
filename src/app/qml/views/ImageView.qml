@@ -181,7 +181,7 @@ Item {
                                     : "Nothing is written where the image is zero: fastest and gentlest on flash. Old bytes stay recoverable in free space and gaps, and a stale filesystem signature in a gap can confuse other tools."
                                 font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WordWrap
                             }
-                            Text { Layout.fillWidth: true; visible: view.controller.restoreZeroPlanText.length > 0; text: view.controller.restoreZeroPlanText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(300); wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; visible: view.controller.restoreZeroPlanText.length > 0; text: view.controller.restoreZeroPlanText + (view.controller.restoreZerosDefaulted ? (view.controller.restoreZeros === "gaps" ? " \u00b7 default for removable drives" : " \u00b7 default for fixed disks and files") : ""); font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(300); wrapMode: Text.WordWrap }
                         }
                         Text { Layout.fillWidth: true; visible: view.controller.restoreMessage.length > 0; text: view.controller.restoreMessage; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.warning; wrapMode: Text.WordWrap }
                         RowLayout { spacing: 6; Layout.topMargin: Theme.space3

@@ -70,6 +70,9 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
       table understood → nothing zeroed; byte counts planned from the chunk map
       before writing; straddling chunks split at the boundary. Tests on both sides;
       CLI `--zeros gaps`. See `04-restore-zero-chunks.md`.
+- [x] K3 "Zero free space only" is the default when the target is a removable drive;
+      byte-identical stays the default for fixed disks and files; an explicit choice
+      sticks for that image.
 
 ## J. Someday (research)
 - [ ] J1 Full Disk Access has to be granted again after every rebuild, and System

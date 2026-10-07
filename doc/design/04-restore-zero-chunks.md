@@ -198,5 +198,6 @@ With that, the skip option can become the default for removable drives.
   Skip them) in the Restore form, with the plan line under it and in the
   confirmation and report.
 
-Not changed: the default stays `Write` (byte-identical). Making `gaps` the default
-for removable targets is a one-line policy choice once you are happy with it.
+Defaults (app): a removable target starts on "Zero free space only"; fixed disks and
+image files start on "Write them". The default follows the target until the user
+picks a mode for that image; picking a new image resets it.

@@ -57,6 +57,7 @@ class ImageController : public QObject {
     Q_PROPERTY(bool restoreAllowSmaller READ restoreAllowSmaller WRITE setRestoreAllowSmaller NOTIFY formChanged)
     Q_PROPERTY(QString restoreZeros READ restoreZeros WRITE setRestoreZeros NOTIFY formChanged)   // "write" | "gaps" | "skip"
     Q_PROPERTY(QString restoreZeroPlanText READ restoreZeroPlanText NOTIFY formChanged)        // computed from the chunk map
+    Q_PROPERTY(bool restoreZerosDefaulted READ restoreZerosDefaulted NOTIFY formChanged)       // the mode came from the target kind, not from the user
     Q_PROPERTY(QString restoreImagePath READ restoreImagePath WRITE setRestoreImagePath NOTIFY formChanged)
     Q_PROPERTY(bool canRestore READ canRestore NOTIFY formChanged)
     Q_PROPERTY(QString restoreMessage READ restoreMessage NOTIFY formChanged)
@@ -129,6 +130,7 @@ public:
     QString restoreZeros() const;
     void setRestoreZeros(const QString& mode);
     QString restoreZeroPlanText() const { return m_zeroPlanText; }
+    bool restoreZerosDefaulted() const { return !m_zerosExplicit; }
     QString restoreImagePath() const { return QString::fromStdString(m_restore.image.string()); }
     void setRestoreImagePath(const QString& p);
     bool canRestore() const;
@@ -172,6 +174,7 @@ private:
     std::optional<core::RestoreScope> m_restoreScope;
     QString m_restoreScopeError;
     QString m_zeroPlanText;
+    bool m_zerosExplicit = false;          // the user picked a zero mode for this image; targets no longer change it
     int m_scopeIndex = 0;
     int m_verifyLevel = 3;
     QVariantList m_keys;
