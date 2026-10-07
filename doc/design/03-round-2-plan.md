@@ -111,8 +111,11 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
 
 ### Status 2026-10-08 (end of day)
 
-Everything above is in the tree, including the libstein-side zero policy (K2–K4),
-which closed H1's recommendation. Verified on this Mac: A, B, C, D, F, I by
+Everything above is in the tree. The restore-speed thread (H1) went further than
+research: K1–K6 implement the whole proposal in libstein and the app (zero policy,
+removable default, guaranteed `zeroRange()`, compare-before-write). What remains
+open from the whole round is J1 (code-signing identity, parked until the app lives
+in Applications) and the unrun Linux/Windows paths noted per item. Verified on this Mac: A, B, C, D, F, I by
 screenshot on image files; E1 and E3/E4 by core tests (the stick needs root to
 open, which this session cannot do by itself); H2 by attaching a disk image with
 `hdiutil` while the app ran: it appeared in the sidebar on its own.

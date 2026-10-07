@@ -205,6 +205,20 @@ resets it. In the CLI, `--zeros` given explicitly always wins; without it the
 removable flag of `Platform::describe()` decides, and the plan line names the
 reason.
 
+### Where the restore stands now (2026-10-08, end of day)
+
+All five steps are in. For the three situations in this note:
+
+| Situation | Before | Now |
+|---|---|---|
+| Restore a mostly-empty image onto a raw `.img` file | writes every zero range | holes are punched: 139 MB image into a data-filled file in 0.03 s, byte-identical, 272 384 → 18 432 allocated blocks |
+| Restore a stick's own image back onto it | writes the whole stick | compare-before-write skips every chunk: one read pass, no writes, under any zero mode |
+| Restore onto a stick that holds something else | writes the whole stick | "Zero free space only" (default for removable targets) writes the data plus the few MiB of table-free space; on a stick that honours unmap, "Write them" costs a read-back instead of a write; one that refuses unmap and holds junk still needs its zeros written when byte-identical is asked for |
+
+The one thing not exercised on real hardware is the disk-level `zeroRange()` paths
+(macOS unmap + read-back, Linux `BLKZEROOUT`, Windows DSM TRIM); they need root
+and a device that answers the hint. The file path is verified.
+
 ### Status of the proposal's five steps
 
 | Step | State |
