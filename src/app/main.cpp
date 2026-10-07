@@ -7,6 +7,7 @@
 //   DRSTEIN_VIEW=topology|hex|browse|image|profiles|tools|partitions   start on that view
 //   DRSTEIN_SCREENSHOT=<file.png>    grab the window after DRSTEIN_DELAY ms (default 2500), save it, quit
 //   DRSTEIN_SCRIPT=<javascript>      evaluated in Main.qml's scope 1 s after start (smoke runs)
+#include "device_watcher.hpp"
 #include "workspace.hpp"
 
 #include <QGuiApplication>
@@ -46,6 +47,13 @@ int main(int argc, char* argv[]) {
             last = args[i];
         }
     if (!last.isEmpty()) workspace->openImagePath(last);
+    // Disks and mounts changing under us re-list the sidebar (and re-read the open disk).
+    auto* watcher = new drstein::ui::DeviceWatcher(&app);
+    QObject::connect(watcher, &drstein::ui::DeviceWatcher::devicesChanged, workspace, [workspace](const QString& what) {
+        if (std::getenv("DRSTEIN_SCRIPT")) qInfo().noquote() << "devices changed:" << what;
+        workspace->refresh();
+    });
+    workspace->setHotplug(watcher->available());
     // Mounts made by the app end with it; the singleton's destructor never runs.
     QObject::connect(&app, &QGuiApplication::aboutToQuit, &app, [workspace] { workspace->mounts().unmountAll(); });
 

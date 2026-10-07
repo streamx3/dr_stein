@@ -18,6 +18,7 @@ class Settings : public QObject {
     Q_PROPERTY(QString colorScheme READ colorScheme WRITE setColorScheme NOTIFY colorSchemeChanged)   // "dark" | "light" | "system"
     Q_PROPERTY(bool expertMode READ expertMode WRITE setExpertMode NOTIFY expertModeChanged)
     Q_PROPERTY(bool customTitleBar READ customTitleBar WRITE setCustomTitleBar NOTIFY customTitleBarChanged)   // applies at next launch
+    Q_PROPERTY(bool interactDuringJobs READ interactDuringJobs WRITE setInteractDuringJobs NOTIFY interactDuringJobsChanged)   // expert: keep the UI live while a job runs
     Q_PROPERTY(bool decimalSizes READ decimalSizes WRITE setDecimalSizes NOTIFY decimalSizesChanged)
     Q_PROPERTY(QString profilesDir READ profilesDir WRITE setProfilesDir NOTIFY profilesDirChanged)
     Q_PROPERTY(QStringList recentImages READ recentImages NOTIFY recentImagesChanged)
@@ -36,6 +37,8 @@ public:
     void setExpertMode(bool on);
     bool customTitleBar() const;
     void setCustomTitleBar(bool on);
+    bool interactDuringJobs() const;
+    void setInteractDuringJobs(bool on);
     bool decimalSizes() const;
     void setDecimalSizes(bool on);
     QString profilesDir() const;
@@ -53,6 +56,7 @@ Q_SIGNALS:
     void colorSchemeChanged();
     void expertModeChanged();
     void customTitleBarChanged();
+    void interactDuringJobsChanged();
     void decimalSizesChanged();
     void profilesDirChanged();
     void recentImagesChanged();
@@ -62,6 +66,9 @@ Q_SIGNALS:
 private:
     explicit Settings(QObject* parent = nullptr);
     mutable QSettings m_settings;
+    // DRSTEIN_PALETTE / DRSTEIN_SCHEME seed these at start-up (the elevated relaunch
+    // carries the look across); a change in Settings replaces them for this run.
+    QString m_palette, m_scheme;
 };
 
 } // namespace drstein::ui

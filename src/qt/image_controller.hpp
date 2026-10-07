@@ -49,6 +49,8 @@ class ImageController : public QObject {
     Q_PROPERTY(QVariantList restoreTargets READ restoreTargets NOTIFY formChanged)
     Q_PROPERTY(QString restoreScopeText READ restoreScopeText NOTIFY formChanged)       // "whole-device image · 139.5 MB" / provenance
     Q_PROPERTY(bool restorePartitionImage READ restorePartitionImage NOTIFY formChanged)
+    Q_PROPERTY(bool restoreEncrypted READ restoreEncrypted NOTIFY formChanged)
+    Q_PROPERTY(bool restoreUnlocked READ restoreUnlocked NOTIFY formChanged)
     Q_PROPERTY(QString restoreTargetId READ restoreTargetId WRITE setRestoreTargetId NOTIFY formChanged)
     Q_PROPERTY(QVariantMap restoreTarget READ restoreTarget NOTIFY formChanged)
     Q_PROPERTY(bool restoreVerifyFirst READ restoreVerifyFirst WRITE setRestoreVerifyFirst NOTIFY formChanged)
@@ -111,6 +113,10 @@ public:
     QVariantList restoreTargets() const;
     QString restoreScopeText() const;
     bool restorePartitionImage() const { return m_restoreScope && m_restoreScope->partition; }
+    bool restoreEncrypted() const { return m_restoreScope && m_restoreScope->encrypted; }
+    bool restoreUnlocked() const { return !m_restoreScope || m_restoreScope->unlocked; }
+    // Tries the passphrase against the image's key area; on success it is kept for the restore.
+    Q_INVOKABLE bool checkRestorePassphrase(const QString& passphrase);
     QString restoreTargetId() const { return m_restoreTargetId; }
     void setRestoreTargetId(const QString& id);
     QVariantMap restoreTarget() const;

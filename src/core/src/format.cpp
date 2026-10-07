@@ -111,6 +111,25 @@ std::string timeText(std::int64_t secondsSinceEpoch) {
     return buf;
 }
 
+std::string isoToLocalText(const std::string& iso) {
+    std::tm tm{};
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, sec = 0;
+    if (std::sscanf(iso.c_str(), "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) < 5) return iso;
+    tm.tm_year = y - 1900;
+    tm.tm_mon = mo - 1;
+    tm.tm_mday = d;
+    tm.tm_hour = h;
+    tm.tm_min = mi;
+    tm.tm_sec = sec;
+#if defined(_WIN32)
+    const std::time_t t = _mkgmtime(&tm);
+#else
+    const std::time_t t = timegm(&tm);
+#endif
+    if (t == static_cast<std::time_t>(-1)) return iso;
+    return timeText(static_cast<std::int64_t>(t));
+}
+
 std::string modeText(const stein::fs::Stat& st) {
     using stein::fs::FileType;
     std::string m;

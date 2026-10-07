@@ -43,6 +43,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
                 gap: Theme.space3
+                enabled: !Workspace.uiLocked
+                opacity: enabled ? 1 : 0.6
                 ColumnLayout {
                     spacing: 1
                     Kicker { text: "Read-only" }
@@ -102,6 +104,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
                 gap: Theme.space3
+                enabled: !Workspace.uiLocked
+                opacity: enabled ? 1 : 0.6
                 ColumnLayout {
                     spacing: 1
                     Kicker { text: "Destructive"; tint: Theme.danger }

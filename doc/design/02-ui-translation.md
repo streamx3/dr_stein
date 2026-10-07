@@ -148,3 +148,39 @@ for the privacy case, offers **Open Privacy & Security…**
 (`x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`),
 **Show app in Finder** (so the bundle can be dragged into the list) and **Try
 again**. Verified that the link brings System Settings to the front on macOS 26.
+
+## Round 2 (2026-10-08)
+
+See `03-round-2-plan.md` for the item list. Rules that came out of it:
+
+- **Tables are fixed-width columns.** A `Text` in a `RowLayout` with only
+  `Layout.preferredWidth` still grows with its text; a column needs
+  `minimumWidth = maximumWidth = preferredWidth` and `elide`, and the flexible
+  column needs `Layout.minimumWidth: 0`. Applied to Browse, Topology, Partitions
+  and `ColumnHeader`.
+- **The restore target is red.** Whatever the sidebar marks as the restore target
+  (device or raw image) gets the danger colour in every scheme: tinted row, red
+  bar, red name, a "restore target" tag. The mark moves with the choice and clears
+  after the restore, when the image changes, or when the Image view leaves
+  Restore mode. The target list is every disk and raw image (the open one
+  included); only the image being restored is excluded. Picking an image file in
+  the Restore form opens it as a source like "Open image file…" does.
+- **Device column.** Target rows start with the OS device in a mono font, padded
+  by the model to one width (`/dev/disk4`, `/dev/sda`, `file`), then the name in
+  the regular font. `StCombo.monoRole` renders it in the list and in the closed
+  combo.
+- **Writes lock the UI.** While a job runs (anything but a probe or a usage
+  read), tabs, sidebar and forms are disabled and dimmed; the job card with
+  Cancel stays live. Expert mode exposes "Allow using the app while a read or
+  write runs" with the warning spelled out.
+- **Passphrase before the typed confirmation.** For an encrypted image the
+  passphrase is asked first and checked against the key area; a wrong one is
+  reported and asked again, with no delay. Only then comes the device-name
+  confirmation, then the write.
+- **OS device ids.** Partition rows show `disk5s2` / `sda1` / `nvme0n1p1` next to
+  "Partition 2" and a "mounted" tag when the OS has them mounted; the details
+  card lists `device` and `mounted at`, and the Mount button becomes "Unmount …"
+  for OS mounts (through libstein's `Platform::unmount`).
+- **Environment is a default, not a lock.** `DRSTEIN_PALETTE` / `DRSTEIN_SCHEME`
+  seed the settings at start (the elevated relaunch uses them) and the Settings
+  dialog can change them afterwards.

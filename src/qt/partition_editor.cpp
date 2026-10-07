@@ -14,8 +14,11 @@ PartitionEditor::PartitionEditor(QObject* parent) : QObject(parent) {
         if (!Workspace::instance()->current() || Workspace::instance()->current()->descriptor.id != m_sourceId) reload();
     });
     connect(Workspace::instance(), &Workspace::probed, this, [this] {
-        // The device changed under us (hex write, restore): drop the stale session.
-        if (m_session && m_session->stack().empty()) reload();
+        // The device changed under us (hex write, restore, refresh, unmount): reopen unless edits are pending.
+        if (!m_session || m_session->stack().empty()) reload();
+    });
+    connect(Workspace::instance(), &Workspace::mountsChanged, this, [this] {
+        if (!m_session && Workspace::instance()->view() == "partitions") reload();
     });
     connect(Workspace::instance(), &Workspace::viewChanged, this, [this] {
         // The writable handle lives only while the view shows; pending edits keep it.
@@ -46,7 +49,10 @@ void PartitionEditor::reload() {
         o.passphrases = w->passphrasesFor(m_sourceId);
         auto s = core::EditSession::open(c->descriptor, o);
         if (s) m_session.emplace(std::move(*s));
-        else m_reason = qs(core::present(s.error()).message);
+        else {
+            const auto pres = core::present(s.error());
+            m_reason = qs(pres.message) + (pres.hint.empty() ? "" : "\n\n" + qs(pres.hint));
+        }
     }
     Q_EMIT changed();
 }
@@ -88,6 +94,7 @@ QVariantList PartitionEditor::previewRows() const {
         m["sizeText"] = qs(r.sizeText);
         m["change"] = qs(r.change);
         m["colorIndex"] = r.colorIndex;
+        m["index"] = r.index;
         m["isFree"] = r.isFree;
         m["changed"] = r.changed;
         m["deleted"] = r.deleted;

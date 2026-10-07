@@ -7,6 +7,7 @@
 #include "stein/core/units.hpp"
 #include "stein/fs/reader.hpp"
 #include "stein/layout/node.hpp"
+#include "stein/platform/platform.hpp"
 #include "stein/probe/topology.hpp"
 
 #include <optional>
@@ -24,6 +25,8 @@ struct TopologyRow {
     NodePath path;
     int depth = 0;
     std::string kindLabel;         // "Device", "Partition 2", "Free", "Decrypted", "Volume", "Metadata"
+    std::string osDevice;          // "disk4s2", "sda1" for partitions of a real disk; "" otherwise
+    std::string mountpoint;        // where the OS has it mounted; "" when it does not
     std::string name;              // GPT name, fs label, volume name; "" for the device (the UI shows the source title)
     std::string content;           // "FAT32 "EFI" · clean", "LUKS2 → LVM2 → ext4", "GPT · 128 entries"
     std::string sizeText;
@@ -60,7 +63,19 @@ struct NodeDetails {
     std::string usedLabel, usedText;              // "ext4 used", "243.9 GB of 399.9 GB"
     std::vector<stein::fs::SubvolumeInfo> subvolumes;
     bool canBrowse = false, canInspect = false, canRepair = false, canMount = false, isLockedContainer = false;
+    std::string osDevice, mountpoint;             // see TopologyRow
 };
+// Fills osDevice / mountpoint on partition rows of a real disk from the OS mount table.
+struct OsMount {
+    std::string device;            // "/dev/disk4s2"
+    std::string mountpoint;        // "/Volumes/UDisk"
+    std::string fsType;
+    bool readOnly = false;
+};
+void annotateOsDevices(std::vector<TopologyRow>& rows, const stein::probe::Node& root, const stein::platform::DiskInfo& disk,
+                       std::string_view platformName, const std::vector<OsMount>& mounts);
+void annotateOsDevice(NodeDetails& details, const stein::probe::Node& root, const NodePath& path, const stein::platform::DiskInfo& disk,
+                      std::string_view platformName, const std::vector<OsMount>& mounts);
 NodeDetails nodeDetails(const stein::probe::Node& root, const NodePath& path);
 // Details of a synthesized metadata row (expert mode).
 NodeDetails metadataDetails(const stein::probe::Node& root, int metadataIndex);

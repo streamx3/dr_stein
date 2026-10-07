@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include "drstein/core/source.hpp"
 #include "drstein/core/topology.hpp"
 #include "fixtures.hpp"
 
@@ -158,4 +159,47 @@ TEST_CASE("a whole-device filesystem has one segment and no table rows") {
     auto segs = segments(tree);
     REQUIRE(segs.size() == 1);
     CHECK(segs[0].path.empty());
+}
+
+TEST_CASE("partition device names follow the platform's convention") {
+    platform::DiskInfo mac;
+    mac.osPath = "/dev/rdisk4";
+    mac.kernelName = "disk4";
+    CHECK(partitionKernelName(mac, 2, "macos") == "disk4s2");
+    CHECK(partitionOsPath(mac, 2, "macos") == "/dev/disk4s2");
+    platform::DiskInfo sda;
+    sda.osPath = "/dev/sda";
+    sda.kernelName = "sda";
+    CHECK(partitionOsPath(sda, 1, "linux") == "/dev/sda1");
+    platform::DiskInfo nvme;
+    nvme.osPath = "/dev/nvme0n1";
+    nvme.kernelName = "nvme0n1";
+    CHECK(partitionOsPath(nvme, 3, "linux") == "/dev/nvme0n1p3");
+    platform::DiskInfo win;
+    win.osPath = "\\\\.\\PhysicalDrive0";
+    CHECK(partitionOsPath(win, 1, "windows").empty());
+
+    auto disk = drstein::test::compositeDisk();
+    auto tree = probe::probe(disk.device);
+    REQUIRE(tree);
+    auto rows = topologyRows(*tree, false);
+    std::vector<OsMount> mounts{{"/dev/disk4s2", "/Volumes/Data", "msdos", false}};
+    annotateOsDevices(rows, *tree, mac, "macos", mounts);
+    bool found = false;
+    for (const auto& r : rows)
+        if (r.name == "Data") {
+            found = true;
+            CHECK(r.osDevice == "disk4s2");
+            CHECK(r.mountpoint == "/Volumes/Data");
+        }
+    CHECK(found);
+    for (const auto& r : rows)
+        if (r.name == "Data") {
+            auto d = nodeDetails(*tree, r.path);
+            annotateOsDevice(d, *tree, r.path, mac, "macos", mounts);
+            CHECK(d.rows.front().key == "device");
+            CHECK(d.rows.front().value == "/dev/disk4s2");
+            CHECK(d.mountpoint == "/Volumes/Data");
+            CHECK(!d.canMount);
+        }
 }

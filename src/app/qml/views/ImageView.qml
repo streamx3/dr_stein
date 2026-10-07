@@ -37,12 +37,14 @@ Item {
         anchors.bottomMargin: Theme.space6
         spacing: Theme.space6
 
-        // Left: form.
+        // Left: form. Locked while a job runs; the card on the right keeps Cancel.
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: 1
             spacing: Theme.space4
+            enabled: !Workspace.uiLocked
+            opacity: enabled ? 1 : 0.6
             StSegmented {
                 model: [{ label: "Create image", value: "create" }, { label: "Restore image", value: "restore" }, { label: "Verify", value: "verify" }, { label: "Keys", value: "keys" }]
                 currentValue: view.controller.mode
@@ -144,27 +146,30 @@ Item {
                         ColumnLayout { Layout.fillWidth: true; spacing: 4
                             Kicker { text: "Image"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
                             RowLayout { Layout.fillWidth: true; spacing: 6
-                                StTextField { Layout.fillWidth: true; mono: true; text: view.controller.restoreImagePath; onTextEdited: view.controller.restoreImagePath = text; placeholderText: "a .stein, raw, qcow2, VHD(X), VMDK, VDI, E01 or DMG image" }
-                                StButton { text: "Choose…"; small: true; onClicked: restoreSourceDialog.open() }
+                                StTextField { Layout.fillWidth: true; mono: true; text: view.controller.restoreImagePath; onEditingFinished: if (text !== view.controller.restoreImagePath) view.controller.restoreImagePath = text; placeholderText: "a .stein, raw, qcow2, VHD(X), VMDK, VDI, E01 or DMG image" }
+                                StButton { text: "Choose\u2026"; small: true; onClicked: restoreSourceDialog.open() }
                             }
+                            Text { Layout.fillWidth: true; visible: view.controller.restoreScopeText.length > 0; text: view.controller.restoreScopeText + (view.controller.restoreEncrypted ? (view.controller.restoreUnlocked ? " \u00b7 encrypted, unlocked" : " \u00b7 encrypted: the passphrase is asked before the confirmation") : ""); font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: view.controller.restorePartitionImage ? Theme.accentStep(300) : Theme.textMuted; wrapMode: Text.WordWrap }
                         }
                         ColumnLayout { Layout.fillWidth: true; spacing: 4
-                            Kicker { text: "Target disk"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
+                            Kicker { text: view.controller.restorePartitionImage ? "Target partition (of " + Workspace.title + ")" : "Target"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
                             StCombo {
+                                id: targetCombo
                                 Layout.fillWidth: true
                                 model: view.controller.restoreTargets
                                 textRole: "name"
-                                displayText: currentIndex >= 0 ? model[currentIndex].name + " · " + model[currentIndex].path + " · " + model[currentIndex].sizeText : "choose a target"
-                                currentIndex: { for (var i = 0; i < model.length; ++i) if (model[i].id === view.controller.restoreTargetId) return i; return -1 }
+                                monoRole: "devicePadded"
+                                closedText: currentIndex >= 0 ? model[currentIndex].name + " \u00b7 " + model[currentIndex].fitText : "choose a target"
+                                currentIndex: { var m = view.controller.restoreTargets; for (var i = 0; i < m.length; ++i) if (m[i].id === view.controller.restoreTargetId) return i; return -1 }
                                 onActivated: (i) => view.controller.restoreTargetId = model[i].id
                             }
-                            Text { Layout.fillWidth: true; text: "Every byte of the target is overwritten. Removable disks are the usual choice; the confirmation repeats the identity."; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: view.controller.restorePartitionImage ? "Only that partition's bytes are overwritten; the table and the other partitions stay. Select the disk in the sidebar to pick one of its partitions." : "Every byte of the target is overwritten. The target is marked red in the sidebar; the confirmation repeats its identity."; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WordWrap }
                         }
                         StCheck { text: "Verify the image's checksums before writing anything"; checked: view.controller.restoreVerifyFirst; onToggled: view.controller.restoreVerifyFirst = checked }
                         StCheck { text: "Allow a smaller target (writes what fits; the tail is lost)"; checked: view.controller.restoreAllowSmaller; onToggled: view.controller.restoreAllowSmaller = checked }
                         Text { Layout.fillWidth: true; visible: view.controller.restoreMessage.length > 0; text: view.controller.restoreMessage; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.warning; wrapMode: Text.WordWrap }
                         RowLayout { spacing: 6; Layout.topMargin: Theme.space3
-                            StButton { text: "Restore…"; variant: "danger"; enabled: view.controller.canRestore && !JobRunner.running; onClicked: view.confirmRestore() }
+                            StButton { text: "Restore\u2026"; variant: "danger"; enabled: view.controller.canRestore && !JobRunner.running; onClicked: view.confirmRestore() }
                         }
                     }
 

@@ -25,6 +25,7 @@ void ImageController::setMode(const QString& m) {
     if (m == m_mode) return;
     m_mode = m;
     if (m == "keys") reloadKeys();
+    Workspace::instance()->setRestoreTarget(m == "restore" ? m_restoreTargetId.section('#', 0, 0) : QString());
     Q_EMIT modeChanged();
 }
 
@@ -79,9 +80,15 @@ void ImageController::onSourceChanged() {
     m_scopeIndex = 0;
     m_form.sourcePath.clear();
     if (m_form.destination.empty() || m_form.destination.filename().string().starts_with("dr-stein-")) m_form.destination = ss(defaultDestination());
-    const Workspace* w = Workspace::instance();
+    Workspace* w = Workspace::instance();
     if (w->isImage() && w->current()) {
-        m_restore.image = w->current()->descriptor.path;
+        if (m_restore.image.empty() || m_restore.image != w->current()->descriptor.path) {
+            m_restore.image = w->current()->descriptor.path;
+            m_restore.passphrase.clear();
+            reloadRestoreScope();
+            m_restoreTargetId.clear();
+            w->setRestoreTarget({});
+        }
         if (sourceIsStein() && m_mode == "create") m_mode = "verify";
         if (!sourceIsStein() && (m_mode == "verify" || m_mode == "keys")) m_mode = "create";
     } else if (w->isDisk()) {
@@ -239,9 +246,20 @@ QString ImageController::restoreScopeText() const {
     return "whole-device image \u00b7 " + qs(core::sizeText(m_restoreScope->size));
 }
 
+namespace {
+
+QString padRight(QString text, int width) {
+    while (text.size() < width) text += ' ';
+    return text;
+}
+
+} // namespace
+
 QVariantList ImageController::restoreTargets() const {
     QVariantList out;
     Workspace* w = Workspace::instance();
+    const QString platformName = w->platformName();
+    QList<QVariantMap> rows;
     if (m_restoreScope && m_restoreScope->partition) {
         // Partition images go into a partition of the source that is open: its tree is already probed.
         const auto* c = w->current();
@@ -252,7 +270,9 @@ QVariantList ImageController::restoreTargets() const {
             if (!node || !node->partition) continue;
             QVariantMap m;
             m["id"] = qs(c->descriptor.id) + "#" + QString::number(node->partition->index);
-            m["name"] = qs(c->descriptor.title) + " \u00b7 " + qs(sc.label);
+            m["device"] = c->descriptor.disk ? qs(core::partitionOsPath(*c->descriptor.disk, node->partition->index, ss(platformName))) : QString("file #%1").arg(node->partition->index);
+            if (m["device"].toString().isEmpty()) m["device"] = QString("partition %1").arg(node->partition->index);
+            m["name"] = qs(sc.label) + " of " + qs(c->descriptor.title);
             m["subtitle"] = qs(c->descriptor.subtitle);
             m["path"] = qs(c->descriptor.path);
             m["sizeText"] = qs(core::sizeBinaryOrDecimal(node->region.length));
@@ -261,16 +281,18 @@ QVariantList ImageController::restoreTargets() const {
             m["isDisk"] = c->descriptor.kind == core::SourceKind::Disk;
             m["fits"] = node->region.length >= m_restoreScope->size;
             m["sameSize"] = node->region.length == m_restoreScope->size;
-            out.push_back(m);
+            rows.push_back(m);
         }
-        return out;
-    }
-    for (const auto& s : w->sources()->items()) {
-        if (s.kind == core::SourceKind::Disk || (s.image && s.image->format == stein::image::VdiskFormat::Raw && s.image->segments == 1)) {
-            if (w->current() && s.id == w->current()->descriptor.id) continue;
+    } else {
+        // Every disk and every raw image, the open one included; only the image being restored is out.
+        const QString restoring = QString::fromStdString(m_restore.image.lexically_normal().string());
+        for (const auto& s : w->sources()->items()) {
+            if (!(s.kind == core::SourceKind::Disk || (s.image && s.image->format == stein::image::VdiskFormat::Raw && s.image->segments == 1))) continue;
+            if (s.kind == core::SourceKind::ImageFile && qs(s.path) == restoring) continue;
             QVariantMap m;
             m["id"] = qs(s.id);
-            m["name"] = qs(s.kind == core::SourceKind::Disk ? s.title : s.name);
+            m["device"] = s.kind == core::SourceKind::Disk ? qs(s.path) : QString("file");
+            m["name"] = qs(s.kind == core::SourceKind::Disk ? s.title : s.name) + " \u00b7 " + qs(core::sizeText(s.sizeBytes));
             m["subtitle"] = qs(s.subtitle);
             m["path"] = qs(s.path);
             m["sizeText"] = qs(core::sizeText(s.sizeBytes));
@@ -279,8 +301,16 @@ QVariantList ImageController::restoreTargets() const {
             m["isDisk"] = s.kind == core::SourceKind::Disk;
             m["fits"] = !m_restoreScope || s.sizeBytes >= m_restoreScope->size;
             m["sameSize"] = m_restoreScope && s.sizeBytes == m_restoreScope->size;
-            out.push_back(m);
+            rows.push_back(m);
         }
+    }
+    // The device column is padded to one width so the list reads as a table in a mono font.
+    int width = 0;
+    for (const auto& m : rows) width = std::max(width, static_cast<int>(m["device"].toString().size()));
+    for (auto m : rows) {
+        m["devicePadded"] = padRight(m["device"].toString(), width);
+        m["fitText"] = m["sameSize"].toBool() ? "same size" : m["fits"].toBool() ? "larger" : "too small";
+        out.push_back(m);
     }
     return out;
 }
@@ -288,7 +318,22 @@ QVariantList ImageController::restoreTargets() const {
 void ImageController::setRestoreTargetId(const QString& id) {
     if (id == m_restoreTargetId) return;
     m_restoreTargetId = id;
+    // The sidebar marks the target in red for as long as it is the target.
+    Workspace::instance()->setRestoreTarget(m_mode == "restore" ? id.section('#', 0, 0) : QString());
     Q_EMIT formChanged();
+}
+
+bool ImageController::checkRestorePassphrase(const QString& passphrase) {
+    auto ok = core::passphraseOpens(m_restore.image, ss(passphrase));
+    if (!ok) {
+        Workspace::instance()->reportError(ok.error());
+        return false;
+    }
+    if (!*ok) return false;
+    m_restore.passphrase = ss(passphrase);
+    reloadRestoreScope();   // the manifest (and a partition image's provenance) is readable now
+    Q_EMIT formChanged();
+    return true;
 }
 
 QVariantMap ImageController::restoreTarget() const {
@@ -315,11 +360,17 @@ void ImageController::setRestoreAllowSmaller(bool on) {
 }
 void ImageController::setRestoreImagePath(const QString& p) {
     m_restore.image = ss(p);
+    m_restore.passphrase.clear();
     reloadRestoreScope();
-    m_restoreTargetId.clear();   // the target list changes with the image's scope
+    setRestoreTargetId({});   // the target list changes with the image's scope
     Q_EMIT formChanged();
 }
-void ImageController::setRestoreImageUrl(const QUrl& url) { setRestoreImagePath(url.toLocalFile()); }
+void ImageController::setRestoreImageUrl(const QUrl& url) {
+    // A file picked here is a source like any other: it joins the sidebar and opens.
+    const QString path = url.toLocalFile();
+    Workspace::instance()->openImagePath(path);
+    setRestoreImagePath(path);
+}
 
 bool ImageController::canRestore() const { return restoreMessage().isEmpty(); }
 
@@ -380,6 +431,7 @@ void ImageController::restore(const QString& passphrase) {
             return {};
         },
         [target](bool ok, const stein::Error&) {
+            Workspace::instance()->setRestoreTarget({});
             if (ok && Workspace::instance()->currentId() == qs(target.id)) Workspace::instance()->reprobe();
         });
     (void)started;

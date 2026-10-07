@@ -42,6 +42,8 @@ Item {
                 Flow {
                     Layout.fillWidth: true
                     spacing: Theme.space4
+                    enabled: !Workspace.uiLocked
+                    opacity: enabled ? 1 : 0.6
                     Repeater {
                         model: ProfilesModel
                         delegate: StCard {

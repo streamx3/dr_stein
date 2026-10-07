@@ -28,6 +28,10 @@ Item {
         icon_: "layers"
         title: "Cannot edit here"
         message: view.editor.unavailableReason
+        actions: [
+            StButton { text: "Try again"; small: true; icon_: "refresh"; onClicked: view.editor.reload() },
+            StButton { visible: Workspace.details.mountpoint.length > 0; text: "Unmount " + Workspace.details.mountpoint; small: true; icon_: "eject"; onClicked: Workspace.unmountSelected() }
+        ]
     }
 
     ColumnLayout {
@@ -66,6 +70,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 0
+                enabled: !Workspace.uiLocked
+                opacity: enabled ? 1 : 0.6
                 ColumnHeader {
                     Layout.fillWidth: true
                     columns: [{ label: "Preview tree" }, { label: "Type", width: 150 }, { label: "Size", width: 110, align: "right" }, { label: "Change", width: 96 }]
@@ -81,7 +87,7 @@ Item {
                         id: prow
                         required property var modelData
                         required property int index
-                        readonly property int partIndex: { var p = view.editor.partitions; var n = 0; for (var i = 0; i < p.length; ++i) if (!modelData.isFree && !modelData.deleted && p[i].sizeText === modelData.sizeText && p[i].name === modelData.name) return p[i].index; return -1 }
+                        readonly property int partIndex: modelData.deleted ? -1 : modelData.index
                         width: previewList.width
                         height: 32
                         radius: Theme.radiusSm
@@ -96,9 +102,9 @@ Item {
                                 Rectangle { width: 8; height: 8; radius: 2; color: prow.modelData.isFree ? Theme.sunken : Theme.partitionColor(prow.modelData.colorIndex); border.width: prow.modelData.isFree ? 1 : 0; border.color: Theme.neutralStep(700) }
                                 Text { Layout.fillWidth: true; text: prow.modelData.name; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; font.strikeout: prow.modelData.deleted; color: prow.modelData.deleted ? Theme.textMuted : Theme.text; elide: Text.ElideRight }
                             }
-                            Text { Layout.preferredWidth: 150; text: prow.modelData.typeCode; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
-                            Text { Layout.preferredWidth: 110; horizontalAlignment: Text.AlignRight; text: prow.modelData.sizeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300) }
-                            Text { Layout.preferredWidth: 96; text: prow.modelData.change; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: prow.modelData.changed ? Theme.accentStep(300) : Theme.textMuted }
+                            Text { Layout.preferredWidth: 150; Layout.minimumWidth: 150; Layout.maximumWidth: 150; text: prow.modelData.typeCode; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
+                            Text { Layout.preferredWidth: 110; Layout.minimumWidth: 110; Layout.maximumWidth: 110; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight; text: prow.modelData.sizeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300) }
+                            Text { Layout.preferredWidth: 96; Layout.minimumWidth: 96; Layout.maximumWidth: 96; elide: Text.ElideRight; text: prow.modelData.change; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: prow.modelData.changed ? Theme.accentStep(300) : Theme.textMuted }
                         }
                         MouseArea { anchors.fill: parent; onClicked: view.selectedPartition = prow.partIndex }
                     }

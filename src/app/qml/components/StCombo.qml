@@ -7,6 +7,10 @@ import DrStein
 ComboBox {
     id: control
     property bool small: false
+    // When set, each row starts with this role in a mono font, padded by the model to one
+    // width, so a list of devices reads as a table: "/dev/disk4   UDisk · 8.1 GB".
+    property string monoRole: ""
+    property string closedText: ""   // overrides displayText when the combo is closed
     font.family: Theme.fontFamily
     font.pixelSize: small ? Theme.fontSmall : Theme.fontSize
     implicitHeight: small ? Theme.controlHeightSmall : Theme.controlHeight + 2
@@ -23,13 +27,26 @@ ComboBox {
         border.width: 1
         border.color: control.activeFocus || control.popup.visible ? Theme.accent : Theme.edge1
     }
-    contentItem: Text {
-        text: control.displayText
-        font: control.font
-        color: Theme.text
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
-        leftPadding: 0
+    contentItem: Row {
+        spacing: 8
+        Text {
+            visible: control.monoRole.length > 0 && control.currentIndex >= 0
+            text: visible ? control.model[control.currentIndex][control.monoRole] : ""
+            font.family: Theme.monoFamily
+            font.pixelSize: control.font.pixelSize
+            color: Theme.accentStep(300)
+            height: parent.height
+            verticalAlignment: Text.AlignVCenter
+        }
+        Text {
+            text: control.closedText.length ? control.closedText : control.displayText
+            font: control.font
+            color: Theme.text
+            height: parent.height
+            width: parent.width - (control.monoRole.length > 0 && control.currentIndex >= 0 ? x : 0)
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
     }
     indicator: Icon {
         x: control.width - width - 8
@@ -47,13 +64,27 @@ ComboBox {
         hoverEnabled: true
         highlighted: control.highlightedIndex === index
         background: Rectangle { color: item.highlighted ? Theme.accentStep(900) : "transparent" }
-        contentItem: Text {
-            text: control.textRole ? item.model[control.textRole] : item.model.modelData !== undefined ? item.model.modelData : item.model.display
-            font: control.font
-            color: item.highlighted ? Theme.accentStep(100) : Theme.text
-            elide: Text.ElideRight
-            verticalAlignment: Text.AlignVCenter
+        contentItem: Row {
             leftPadding: 9
+            spacing: 8
+            Text {
+                visible: control.monoRole.length > 0
+                text: visible ? item.model[control.monoRole] : ""
+                font.family: Theme.monoFamily
+                font.pixelSize: control.font.pixelSize
+                color: item.highlighted ? Theme.accentStep(100) : Theme.accentStep(300)
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+            }
+            Text {
+                text: control.textRole ? item.model[control.textRole] : item.model.modelData !== undefined ? item.model.modelData : item.model.display
+                font: control.font
+                color: item.highlighted ? Theme.accentStep(100) : Theme.text
+                elide: Text.ElideRight
+                height: parent.height
+                width: parent.width - x - 9
+                verticalAlignment: Text.AlignVCenter
+            }
         }
     }
     popup: Popup {

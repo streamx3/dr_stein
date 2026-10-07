@@ -137,7 +137,9 @@ Expected<RestoreScope> restoreScopeOf(const std::filesystem::path& image, const 
         auto info = image::imageInfo(image, passphrase);
         if (!info) return fail(info.error());
         scope.size = info->header.totalSize;
-        if (info->encrypted && !info->unlocked) return scope;   // unknown until unlocked; treated as whole-device
+        scope.encrypted = info->encrypted;
+        scope.unlocked = !info->encrypted || info->unlocked;
+        if (!scope.unlocked) return scope;   // provenance is in the encrypted manifest
         scope.provenance = provenanceFromSource(info->manifest.get("source"));
         scope.partition = scope.provenance.has_value();
         return scope;
@@ -153,6 +155,15 @@ Expected<RestoreScope> restoreScopeOf(const std::filesystem::path& image, const 
     if (!dev) return fail(dev.error());
     scope.size = vi.virtualSize;
     return scope;
+}
+
+Expected<bool> passphraseOpens(const std::filesystem::path& image, const std::string& passphrase) {
+    auto fmt = image::detectVdiskFormat(image);
+    if (!fmt) return fail(fmt.error());
+    if (*fmt != image::VdiskFormat::Stein) return true;
+    auto info = image::imageInfo(image, passphrase);
+    if (!info) return fail(info.error());
+    return !info->encrypted || info->unlocked;
 }
 
 Expected<CreatePlan> validate(const CreateImageForm& form, const OpenedSource& source) {

@@ -53,6 +53,8 @@ Item {
         anchors.bottomMargin: Theme.space6
         spacing: Theme.space4
         visible: Workspace.hasCurrent
+        enabled: !Workspace.uiLocked
+        opacity: enabled ? 1 : 0.6
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -107,6 +109,7 @@ Item {
                             spacing: 12
                             RowLayout {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 Layout.leftMargin: row.model.depth * 18
                                 spacing: 8
                                 Rectangle {
@@ -127,12 +130,14 @@ Item {
                                     Layout.maximumWidth: 260
                                 }
                                 Text { text: row.model.kindLabel; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
+                                Text { visible: row.model.osDevice.length > 0; text: row.model.osDevice; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(400) }
+                                StTag { visible: row.model.mountpoint.length > 0; text: "mounted"; variant: "outline" }
                                 Icon { visible: row.model.isLocked; name: "lock"; size: 11; color: Theme.warning }
                                 Item { Layout.fillWidth: true }
                             }
-                            Text { Layout.preferredWidth: 170; text: row.model.content; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
-                            Text { Layout.preferredWidth: 90; text: row.model.sizeText; horizontalAlignment: Text.AlignRight; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300) }
-                            HealthDot { Layout.preferredWidth: 96; level: row.model.health; text: row.model.healthText }
+                            Text { Layout.preferredWidth: 170; Layout.minimumWidth: 170; Layout.maximumWidth: 170; text: row.model.content; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
+                            Text { Layout.preferredWidth: 90; Layout.minimumWidth: 90; Layout.maximumWidth: 90; elide: Text.ElideRight; text: row.model.sizeText; horizontalAlignment: Text.AlignRight; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300) }
+                            HealthDot { Layout.preferredWidth: 96; Layout.minimumWidth: 96; Layout.maximumWidth: 96; clip: true; level: row.model.health; text: row.model.healthText }
                         }
                         MouseArea {
                             id: rowMouse
@@ -215,7 +220,8 @@ Item {
                     StButton { text: "Inspect bytes"; variant: "primary"; small: true; enabled: Workspace.details.canInspect; onClicked: Workspace.view = "hex" }
                     StButton { text: "Browse files"; small: true; enabled: Workspace.details.canBrowse; onClicked: Workspace.view = "browse" }
                     StButton { text: "Repair"; small: true; enabled: Workspace.details.canRepair; onClicked: Workspace.view = "partitions" }
-                    StButton { text: "Mount"; small: true; enabled: Workspace.details.canMount && !JobRunner.running; onClicked: view.mountRequested() }
+                    StButton { visible: Workspace.details.mountpoint.length === 0; text: "Mount"; small: true; enabled: Workspace.details.canMount && !JobRunner.running; onClicked: view.mountRequested() }
+                    StButton { visible: Workspace.details.mountpoint.length > 0; text: "Unmount " + Workspace.details.mountpoint; small: true; icon_: "eject"; enabled: !JobRunner.running; onClicked: Workspace.unmountSelected() }
                     StButton { text: "Unlock…"; small: true; icon_: "unlock"; visible: Workspace.details.isLockedContainer; onClicked: view.unlockRequested() }
                     StButton { text: "Compute usage"; variant: "ghost"; small: true; visible: !Workspace.details.hasUsed && Workspace.details.canInspect && Workspace.details.kindLabel !== "Device" && Workspace.details.kindLabel !== "Metadata" && Workspace.details.kindLabel !== "Free"; enabled: !JobRunner.running; onClicked: Workspace.computeUsage() }
                 }

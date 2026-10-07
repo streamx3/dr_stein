@@ -38,7 +38,8 @@ Item {
         anchors.bottomMargin: Theme.space4
         spacing: Theme.space3
         visible: view.browser.available
-        enabled: !view.browser.busy
+        enabled: !view.browser.busy && !Workspace.uiLocked
+        opacity: enabled ? 1 : 0.6
 
         RowLayout {
             Layout.fillWidth: true
@@ -186,14 +187,15 @@ Item {
                                 spacing: 10
                                 RowLayout {
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                     spacing: 8
                                     Icon { name: erow.model.kind === "dir" ? "folder" : erow.model.kind === "link" ? "link" : "file"; size: 14; color: erow.model.kind === "dir" ? Theme.accentStep(400) : Theme.textMuted }
-                                    Text { text: erow.model.name; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; elide: Text.ElideRight; Layout.maximumWidth: 360 }
-                                    Text { Layout.fillWidth: true; text: erow.model.linkTarget; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight }
+                                    Text { text: erow.model.name; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; elide: Text.ElideRight; Layout.maximumWidth: 360; Layout.minimumWidth: 0; Layout.fillWidth: erow.model.linkTarget.length === 0 }
+                                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: erow.model.linkTarget; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight }
                                 }
-                                Text { Layout.preferredWidth: 80; horizontalAlignment: Text.AlignRight; text: erow.model.sizeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft }
-                                Text { Layout.preferredWidth: 130; text: erow.model.mtimeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft }
-                                Text { Layout.preferredWidth: 90; text: erow.model.modeText; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
+                                Text { Layout.preferredWidth: 80; Layout.minimumWidth: 80; Layout.maximumWidth: 80; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight; text: erow.model.sizeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft }
+                                Text { Layout.preferredWidth: 130; Layout.minimumWidth: 130; Layout.maximumWidth: 130; elide: Text.ElideRight; text: erow.model.mtimeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft }
+                                Text { Layout.preferredWidth: 90; Layout.minimumWidth: 90; Layout.maximumWidth: 90; elide: Text.ElideRight; text: erow.model.modeText; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
                             }
                             MouseArea {
                                 id: erowMouse

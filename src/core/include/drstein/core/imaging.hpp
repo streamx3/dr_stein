@@ -88,9 +88,13 @@ struct RestoreForm {
 // images to a partition of matching size; mixing the two is refused unless `force`.
 struct RestoreScope {
     bool partition = false;
+    bool encrypted = false;      // .stein with a key area
+    bool unlocked = true;        // false: encrypted and the passphrase was missing or wrong
     std::optional<PartitionProvenance> provenance;
     stein::ByteCount size = 0;
 };
+// True when `passphrase` opens the image's key area (always true for unencrypted images).
+stein::Expected<bool> passphraseOpens(const std::filesystem::path& image, const std::string& passphrase);
 stein::Expected<RestoreScope> restoreScopeOf(const std::filesystem::path& image, const std::string& passphrase = {});
 stein::Expected<stein::image::RestoreResult> runRestore(const RestoreForm& form, stein::BlockDevice& target, stein::Progress& progress, stein::Report& report);
 

@@ -29,6 +29,8 @@ Workspace* g_instance = nullptr;
 }
 
 Workspace::Workspace(QObject* parent) : QObject(parent) {
+    connect(JobRunner::instance(), &JobRunner::runningChanged, this, &Workspace::uiLockedChanged);
+    connect(Settings::instance(), &Settings::interactDuringJobsChanged, this, &Workspace::uiLockedChanged);
     connect(Settings::instance(), &Settings::expertModeChanged, this, [this] {
         rebuildRows();
         Q_EMIT selectionChanged();
@@ -81,6 +83,51 @@ void Workspace::refresh() {
     m_sources.setItems(std::move(items));
     m_sources.setSelected(m_selectedSourceId);
     // The open source may have vanished (unplugged); keep showing it until the user picks another.
+    // A refresh also re-reads the open disk: its mounts and its table may have changed.
+    if (m_current && !JobRunner::instance()->running()) reprobe();
+    else refreshMounts();
+}
+
+bool Workspace::uiLocked() const {
+    JobRunner* j = JobRunner::instance();
+    if (!j->running() || Settings::instance()->interactDuringJobs()) return false;
+    return j->kind() != "probe" && j->kind() != "usage";
+}
+
+void Workspace::setRestoreTarget(const QString& sourceId) {
+    if (qs(m_sources.target()) == sourceId) return;
+    m_sources.setTarget(ss(sourceId));
+    Q_EMIT restoreTargetChanged();
+}
+
+void Workspace::refreshMounts() {
+    m_osMounts.clear();
+    const core::SourceDescriptor* d = m_current ? &m_current->descriptor : m_sources.find(m_currentId);
+    if (d && d->kind == core::SourceKind::Disk)
+        if (auto mounts = stein::platform::current().mounts(d->path))
+            for (const auto& m : *mounts) m_osMounts.push_back({m.source, m.target, m.fsType, m.readOnly});
+    rebuildRows();
+    updateDetails();
+    Q_EMIT mountsChanged();
+}
+
+void Workspace::unmountSelected() {
+    if (!m_current || !m_current->descriptor.disk) return;
+    const QString mp = m_details.mountpoint();
+    if (mp.isEmpty()) return;
+    stein::platform::MountInfo info;
+    for (const auto& m : m_osMounts)
+        if (qs(m.mountpoint) == mp) {
+            info.source = m.device;
+            info.target = m.mountpoint;
+            info.fsType = m.fsType;
+            info.readOnly = m.readOnly;
+        }
+    if (auto r = stein::platform::current().unmount(info, false); !r) {
+        Q_EMIT error(errorToVariant(r.error()));
+        return;
+    }
+    refreshMounts();
 }
 
 void Workspace::openImage(const QUrl& url) { openImagePath(url.isLocalFile() ? url.toLocalFile() : url.toString()); }
@@ -206,6 +253,10 @@ void Workspace::setCurrent(std::optional<core::OpenedSource> source, QVariantMap
     m_selectedMetadata = -1;
     m_segments.clear();
     m_segmentData.clear();
+    m_osMounts.clear();
+    if (m_current && m_current->descriptor.kind == core::SourceKind::Disk)
+        if (auto mounts = stein::platform::current().mounts(m_current->descriptor.path))
+            for (const auto& m : *mounts) m_osMounts.push_back({m.source, m.target, m.fsType, m.readOnly});
     if (m_current) {
         // A descriptor refreshed through the open (e.g. an unlocked image) replaces the sidebar entry.
         m_sources.replace(m_current->descriptor);
@@ -244,7 +295,9 @@ void Workspace::rebuildRows() {
         m_topology.setRows({});
         return;
     }
-    m_topology.setRows(core::topologyRows(m_current->tree, Settings::instance()->expertMode()));
+    auto rows = core::topologyRows(m_current->tree, Settings::instance()->expertMode());
+    if (m_current->descriptor.disk) core::annotateOsDevices(rows, m_current->tree, *m_current->descriptor.disk, stein::platform::current().name(), m_osMounts);
+    m_topology.setRows(std::move(rows));
     const int row = m_selectedMetadata >= 0 ? -1 : m_topology.rowForPath(m_selectedPath);
     m_topology.setSelectedRow(row >= 0 ? row : 0);
 }
@@ -290,7 +343,22 @@ void Workspace::updateDetails() {
     if (m_selectedMetadata >= 0) m_details.set(core::metadataDetails(m_current->tree, m_selectedMetadata), true);
     else {
         core::NodeDetails d = core::nodeDetails(m_current->tree, m_selectedPath);
-        if (m_selectedPath.empty()) d.title = m_current->descriptor.title;
+        if (m_current->descriptor.disk) core::annotateOsDevice(d, m_current->tree, m_selectedPath, *m_current->descriptor.disk, stein::platform::current().name(), m_osMounts);
+        if (m_selectedPath.empty()) {
+            d.title = m_current->descriptor.title;
+            if (const auto& img = m_current->descriptor.image) {
+                // The file's own facts come first; the table's follow.
+                std::vector<core::DetailRow> rows;
+                rows.push_back({"image", img->formatName + (img->variant.empty() ? "" : " " + img->variant) + (img->partitionImage ? " · partition image" : ""), false});
+                if (!img->createdText.empty()) rows.push_back({"created", img->createdText, false});
+                rows.push_back({"on disk", core::sizeText(img->storedBytes) + " for " + core::sizeText(img->virtualSize) + (img->segments > 1 ? " in " + std::to_string(img->segments) + " files" : ""), false});
+                if (!img->sourceName.empty()) rows.push_back({"source", img->sourceName, false});
+                if (img->partitionImage) rows.push_back({"from", img->provenanceText, false});
+                if (!img->storedHash.empty()) rows.push_back({"hash", img->storedHash});
+                rows.insert(rows.end(), d.rows.begin(), d.rows.end());
+                d.rows = std::move(rows);
+            }
+        }
         m_details.set(d, true);
     }
 }

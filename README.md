@@ -24,7 +24,10 @@ Seven views, translated from the Claude Design prototype in
 | Partitions | create / add / edit / delete / repair / wipe on an operation stack with a live preview; applied in one pass |
 
 Everything opens read-only. Writes go through the library's operation stack or
-an explicit, identity-repeating confirmation. Without root or Administrator
+an explicit, identity-repeating confirmation; while a write runs, everything but
+Cancel is locked. Disks and mounts appearing or vanishing are picked up by the
+OS's own notifications (DiskArbitration, inotify + /proc/self/mounts,
+WM_DEVICECHANGE). Without root or Administrator
 rights the app lists disks but can only open image files; it says so in the top
 bar.
 

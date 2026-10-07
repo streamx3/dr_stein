@@ -24,13 +24,14 @@ QVariant SourceListModel::data(const QModelIndex& index, int role) const {
     case Path: return qs(s.path);
     case Selected: return s.id == m_selected;
     case Locked: return s.image && s.image->locked;
+    case Target: return s.id == m_target;
     }
     return {};
 }
 
 QHash<int, QByteArray> SourceListModel::roleNames() const {
     return {{Id, "id"}, {Group, "group"}, {Name, "name"}, {Subtitle, "subtitle"}, {SizeText, "sizeText"},
-            {Icon, "icon"}, {Kind, "kind"}, {Path, "path"}, {Selected, "selected"}, {Locked, "locked"}};
+            {Icon, "icon"}, {Kind, "kind"}, {Path, "path"}, {Selected, "selected"}, {Locked, "locked"}, {Target, "target"}};
 }
 
 void SourceListModel::setItems(std::vector<core::SourceDescriptor> items) {
@@ -58,6 +59,14 @@ void SourceListModel::setSelected(const std::string& id) {
     const int after = indexOf(id);
     if (before >= 0) Q_EMIT dataChanged(index(before), index(before), {Selected});
     if (after >= 0) Q_EMIT dataChanged(index(after), index(after), {Selected});
+}
+
+void SourceListModel::setTarget(const std::string& id) {
+    const int before = indexOf(m_target);
+    m_target = id;
+    const int after = indexOf(id);
+    if (before >= 0) Q_EMIT dataChanged(index(before), index(before), {Target});
+    if (after >= 0) Q_EMIT dataChanged(index(after), index(after), {Target});
 }
 
 void SourceListModel::replace(const core::SourceDescriptor& item) {
@@ -123,6 +132,8 @@ QVariant TopologyModel::data(const QModelIndex& index, int role) const {
     case IsLocked: return r.isLockedContainer;
     case UsedFraction: return r.usedFraction;
     case Selected: return index.row() == m_selectedRow;
+    case OsDevice: return qs(r.osDevice);
+    case Mountpoint: return qs(r.mountpoint);
     }
     return {};
 }
@@ -131,7 +142,8 @@ QHash<int, QByteArray> TopologyModel::roleNames() const {
     return {{Path, "path"}, {Depth, "depth"}, {KindLabel, "kindLabel"}, {Name, "name"}, {Content, "content"},
             {SizeText, "sizeText"}, {Health, "health"}, {HealthText, "healthText"}, {Segment, "segment"},
             {IsMetadata, "isMetadata"}, {MetadataIndex, "metadataIndex"}, {CanBrowse, "canBrowse"}, {CanInspect, "canInspect"},
-            {CanRepair, "canRepair"}, {CanMount, "canMount"}, {IsLocked, "isLocked"}, {UsedFraction, "usedFraction"}, {Selected, "selected"}};
+            {CanRepair, "canRepair"}, {CanMount, "canMount"}, {IsLocked, "isLocked"}, {UsedFraction, "usedFraction"}, {Selected, "selected"},
+            {OsDevice, "osDevice"}, {Mountpoint, "mountpoint"}};
 }
 
 void TopologyModel::setRows(std::vector<core::TopologyRow> rows) {
@@ -208,6 +220,8 @@ void NodeDetailsObject::set(const core::NodeDetails& d, bool valid) {
     m_canRepair = d.canRepair;
     m_canMount = d.canMount;
     m_locked = d.isLockedContainer;
+    m_osDevice = qs(d.osDevice);
+    m_mountpoint = qs(d.mountpoint);
     Q_EMIT changed();
 }
 

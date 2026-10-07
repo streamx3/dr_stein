@@ -10,7 +10,12 @@ namespace {
 Settings* g_instance = nullptr;
 }
 
-Settings::Settings(QObject* parent) : QObject(parent), m_settings("dr_stein", "dr_stein") {}
+Settings::Settings(QObject* parent) : QObject(parent), m_settings("dr_stein", "dr_stein") {
+    m_palette = QString::fromUtf8(qgetenv("DRSTEIN_PALETTE"));
+    m_scheme = QString::fromUtf8(qgetenv("DRSTEIN_SCHEME"));
+    if (m_palette.isEmpty()) m_palette = m_settings.value("ui/palette", "teal").toString();
+    if (m_scheme.isEmpty()) m_scheme = m_settings.value("ui/colorScheme", "dark").toString();
+}
 
 Settings* Settings::instance() {
     if (!g_instance) g_instance = new Settings();
@@ -23,22 +28,18 @@ Settings* Settings::create(QQmlEngine*, QJSEngine*) {
     return s;
 }
 
-QString Settings::palette() const {
-    if (const QByteArray env = qgetenv("DRSTEIN_PALETTE"); !env.isEmpty()) return QString::fromUtf8(env);
-    return m_settings.value("ui/palette", "teal").toString();
-}
+QString Settings::palette() const { return m_palette; }
 void Settings::setPalette(const QString& p) {
-    if (p == palette()) return;
+    if (p == m_palette) return;
+    m_palette = p;
     m_settings.setValue("ui/palette", p);
     Q_EMIT paletteChanged();
 }
 
-QString Settings::colorScheme() const {
-    if (const QByteArray env = qgetenv("DRSTEIN_SCHEME"); !env.isEmpty()) return QString::fromUtf8(env);
-    return m_settings.value("ui/colorScheme", "dark").toString();
-}
+QString Settings::colorScheme() const { return m_scheme; }
 void Settings::setColorScheme(const QString& s) {
-    if (s == colorScheme()) return;
+    if (s == m_scheme) return;
+    m_scheme = s;
     m_settings.setValue("ui/colorScheme", s);
     Q_EMIT colorSchemeChanged();
 }
@@ -58,6 +59,13 @@ void Settings::setCustomTitleBar(bool on) {
     if (on == customTitleBar()) return;
     m_settings.setValue("ui/customTitleBar", on);
     Q_EMIT customTitleBarChanged();
+}
+
+bool Settings::interactDuringJobs() const { return m_settings.value("ui/interactDuringJobs", false).toBool(); }
+void Settings::setInteractDuringJobs(bool on) {
+    if (on == interactDuringJobs()) return;
+    m_settings.setValue("ui/interactDuringJobs", on);
+    Q_EMIT interactDuringJobsChanged();
 }
 
 bool Settings::decimalSizes() const { return m_settings.value("ui/decimalSizes", true).toBool(); }

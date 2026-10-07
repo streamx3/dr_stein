@@ -41,6 +41,8 @@ Item {
         anchors.bottomMargin: Theme.space4
         spacing: Theme.space3
         visible: view.inspector.available
+        enabled: !Workspace.uiLocked
+        opacity: enabled ? 1 : 0.6
 
         RowLayout {
             Layout.fillWidth: true

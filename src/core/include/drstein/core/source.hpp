@@ -30,6 +30,8 @@ struct ImageDescriptor {
     std::vector<std::string> notes;
     std::string sourceName, sourceIdentity, created;   // .stein manifest
     std::string storedHash;                            // sha256 (.stein) or md5 (E01), hex
+    stein::ByteCount storedBytes = 0;                  // bytes on disk across all segments
+    std::string createdText;                           // "2026-10-07 23:28" local time, from the manifest
     bool partitionImage = false;                       // .stein of one partition (manifest source.kind)
     std::string provenanceText;                        // "partition 2 "Data" of Samsung SSD 980 · LBA … · 0700"
 };
@@ -53,5 +55,9 @@ stein::Expected<std::vector<SourceDescriptor>> listDisks(stein::platform::Platfo
 stein::Expected<SourceDescriptor> describeImageFile(const std::filesystem::path& file, const std::string& passphrase = {});
 bool isElevated();
 std::string busName(stein::platform::Bus bus);   // "NVMe", "SATA", "USB"...
+// The OS's own node for partition `index` of a disk: "/dev/disk4s2" (macOS), "/dev/sda1" or
+// "/dev/nvme0n1p1" (Linux); "" on Windows and for image files.
+std::string partitionOsPath(const stein::platform::DiskInfo& disk, std::uint32_t index, std::string_view platformName);
+std::string partitionKernelName(const stein::platform::DiskInfo& disk, std::uint32_t index, std::string_view platformName);
 
 } // namespace drstein::core

@@ -113,21 +113,28 @@ ApplicationWindow {
                     ImageView {
                         id: imageView
                         onConfirmRestore: {
-                            var t = imageView.controller.restoreTarget
-                            confirmDialog.title = t.isPartition ? "Restore into partition " + t.partitionIndex + " of " + t.title + "?" : "Restore onto " + t.title + "?"
-                            confirmDialog.body = t.isPartition ? "Every byte of that partition is overwritten with the image; the partition table and the other partitions stay. This cannot be undone." : "Every byte on the target is overwritten with the image. This cannot be undone."
-                            confirmDialog.facts = [{ key: "Image", value: imageView.controller.restoreImagePath }, { key: "Scope", value: imageView.controller.restoreScopeText, mono: false }, { key: "Target", value: (t.isPartition ? t.targetName + " · " + t.targetSizeText : t.title + " · " + t.sizeText) + (t.removable ? " · removable" : ""), mono: false }, { key: "Path", value: t.path }, { key: "Serial", value: t.serial.length ? t.serial : "—" }]
-                            confirmDialog.expectedText = t.kind === "disk" ? t.kernelName : ""
-                            confirmDialog.confirmLabel = "Restore"
-                            confirmDialog.onConfirm = function() {
-                                if (imageView.controller.restoreImagePath.toLowerCase().endsWith(".stein")) {
-                                    passphraseDialog.what = "restore an encrypted image (leave empty if it is not encrypted)"
-                                    passphraseDialog.callback = function(p) { imageView.controller.restore(p) }
-                                    passphraseDialog.allowEmpty = true
-                                    passphraseDialog.open()
-                                } else imageView.controller.restore("")
+                            // Order: passphrase (checked against the image), then the typed confirmation, then the write.
+                            function confirmThenRestore() {
+                                var t = imageView.controller.restoreTarget
+                                confirmDialog.title = t.isPartition ? "Restore into partition " + t.partitionIndex + " of " + t.title + "?" : "Restore onto " + t.title + "?"
+                                confirmDialog.body = t.isPartition ? "Every byte of that partition is overwritten with the image; the partition table and the other partitions stay. This cannot be undone." : "Every byte on the target is overwritten with the image. This cannot be undone."
+                                confirmDialog.facts = [{ key: "Image", value: imageView.controller.restoreImagePath }, { key: "Scope", value: imageView.controller.restoreScopeText, mono: false }, { key: "Target", value: (t.isPartition ? t.targetName + " \u00b7 " + t.targetSizeText : t.title + " \u00b7 " + t.sizeText) + (t.removable ? " \u00b7 removable" : ""), mono: false }, { key: "Path", value: t.path }, { key: "Serial", value: t.serial.length ? t.serial : "\u2014" }]
+                                confirmDialog.expectedText = t.kind === "disk" ? t.kernelName : ""
+                                confirmDialog.confirmLabel = "Restore"
+                                confirmDialog.onConfirm = function() { imageView.controller.restore("") }
+                                confirmDialog.open()
                             }
-                            confirmDialog.open()
+                            function askPassphrase() {
+                                passphraseDialog.what = "unlock " + imageView.controller.restoreImagePath.split("/").pop()
+                                passphraseDialog.allowEmpty = false
+                                passphraseDialog.callback = function(p) {
+                                    if (imageView.controller.checkRestorePassphrase(p)) confirmThenRestore()
+                                    else { Workspace.error({ title: "Wrong passphrase", message: "The passphrase does not open this image.", hint: "", severity: "warning" }); askPassphrase() }
+                                }
+                                passphraseDialog.open()
+                            }
+                            if (imageView.controller.restoreEncrypted && !imageView.controller.restoreUnlocked) askPassphrase()
+                            else confirmThenRestore()
                         }
                         onAskPassphrase: (what, cb) => { passphraseDialog.what = what; passphraseDialog.callback = cb; passphraseDialog.allowEmpty = false; passphraseDialog.open() }
                         onManageKeys: { keysDialog.controller = imageView.controller; keysDialog.open() }

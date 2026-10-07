@@ -24,6 +24,8 @@ Item {
                 text: modelData.label
                 Layout.fillWidth: !modelData.width
                 Layout.preferredWidth: modelData.width ? modelData.width : -1
+                Layout.minimumWidth: modelData.width ? modelData.width : 0
+                Layout.maximumWidth: modelData.width ? modelData.width : -1
                 horizontalAlignment: modelData.align === "right" ? Text.AlignRight : Text.AlignLeft
             }
         }

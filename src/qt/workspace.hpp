@@ -53,6 +53,9 @@ class Workspace : public QObject {
     Q_PROPERTY(int selectedMetadataIndex READ selectedMetadataIndex NOTIFY selectionChanged)
     Q_PROPERTY(int selectedSegment READ selectedSegment NOTIFY selectionChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
+    Q_PROPERTY(bool hotplug READ hotplug NOTIFY hotplugChanged)              // the OS tells us about device changes
+    Q_PROPERTY(bool uiLocked READ uiLocked NOTIFY uiLockedChanged)          // a job is writing or reading; only Cancel stays live
+    Q_PROPERTY(QString restoreTargetId READ restoreTargetId NOTIFY restoreTargetChanged)
 
 public:
     static Workspace* instance();
@@ -103,6 +106,14 @@ public:
     Q_INVOKABLE void reopenCurrent();   // after a permission fix: try the selected source again
     Q_INVOKABLE void computeUsage();
     Q_INVOKABLE QVariantMap sourceInfo(const QString& id) const;
+    bool uiLocked() const;
+    bool hotplug() const { return m_hotplug; }
+    void setHotplug(bool on) { if (on != m_hotplug) { m_hotplug = on; Q_EMIT hotplugChanged(); } }
+    QString restoreTargetId() const { return QString::fromStdString(m_sources.target()); }
+    Q_INVOKABLE void setRestoreTarget(const QString& sourceId);   // "" clears the red mark
+    // The selected partition's OS mount, if any, is unmounted through the platform.
+    Q_INVOKABLE void unmountSelected();
+    Q_INVOKABLE void refreshMounts();
     // Starts a second copy of the app with root / Administrator rights through the
     // OS's own prompt (macOS: administrator authorisation; Linux: pkexec; Windows:
     // UAC) and quits this one once the prompt was accepted. Open images are passed
@@ -134,6 +145,10 @@ Q_SIGNALS:
     void opened(QString id);
     void probed();   // after reprobe()
     void passphraseNeeded(QString what);
+    void uiLockedChanged();
+    void hotplugChanged();
+    void restoreTargetChanged();
+    void mountsChanged();
 
 private:
     explicit Workspace(QObject* parent = nullptr);
@@ -156,8 +171,10 @@ private:
     std::map<std::string, std::vector<std::string>> m_passphrases;
     std::vector<core::SourceDescriptor> m_images;   // opened image files, kept across refresh()
     core::MountManager m_mounts;
+    std::vector<core::OsMount> m_osMounts;          // the OS mount table for the open disk
     QString m_view = "topology";
     bool m_busy = false;
+    bool m_hotplug = false;
 };
 
 } // namespace drstein::ui

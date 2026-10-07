@@ -2,6 +2,7 @@
 // Brand · view tabs · elevation tag · refresh · theme toggle · settings.
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls.Basic
 import DrStein
 
 Item {
@@ -52,6 +53,8 @@ Item {
         }
         Row {
             spacing: 2
+            enabled: !Workspace.uiLocked
+            opacity: enabled ? 1 : 0.45
             Repeater {
                 model: bar.views
                 delegate: Item {
@@ -79,7 +82,8 @@ Item {
             variant: Workspace.elevated ? "neutral" : "outline"
             dot: Workspace.elevated
         }
-        StButton { text: "Refresh"; small: true; icon_: "refresh"; onClicked: Workspace.refresh() }
+        // With hot-plug the list keeps itself current; the button stays as the manual re-read of the open disk.
+        StButton { text: "Refresh"; small: true; icon_: "refresh"; enabled: !Workspace.uiLocked; onClicked: Workspace.refresh(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: Workspace.hotplug ? "Devices update on their own; this re-reads the open disk" : "Re-list devices and re-read the open disk" }
         IconButton { icon_: "mount"; tip: MountsModel.count + " mount(s) made by Dr Stein"; visible: MountsModel.count > 0; onClicked: bar.openMounts() }
         IconButton { icon_: Theme.dark ? "sun" : "moon"; tip: Theme.dark ? "Switch to light" : "Switch to dark"; onClicked: Settings.colorScheme = Theme.dark ? "light" : "dark" }
         IconButton { icon_: "gear"; tip: "Settings"; onClicked: bar.openSettings() }

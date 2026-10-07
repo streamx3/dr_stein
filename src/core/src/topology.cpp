@@ -2,6 +2,7 @@
 #include "drstein/core/topology.hpp"
 
 #include "drstein/core/format.hpp"
+#include "drstein/core/source.hpp"
 #include "stein/container/luks.hpp"
 #include "stein/core/strings.hpp"
 #include "stein/mount/mount.hpp"
@@ -405,6 +406,49 @@ std::vector<TopologyRow> topologyRows(const Node& root, bool expertMode) {
         }
     }
     return out;
+}
+
+namespace {
+
+std::string mountpointFor(const std::vector<OsMount>& mounts, const std::string& osPath) {
+    for (const auto& m : mounts)
+        if (m.device == osPath || (osPath.size() > 5 && m.device == "/dev/r" + osPath.substr(5))) return m.mountpoint;
+    return {};
+}
+
+} // namespace
+
+void annotateOsDevices(std::vector<TopologyRow>& rows, const Node& root, const platform::DiskInfo& disk, std::string_view platformName, const std::vector<OsMount>& mounts) {
+    for (auto& r : rows) {
+        if (r.isMetadata) continue;
+        if (r.path.empty()) {
+            r.osDevice = disk.kernelName;
+            continue;
+        }
+        const Node* n = nodeAt(root, r.path);
+        if (!n || n->kind != NodeKind::Partition || !n->partition) continue;
+        r.osDevice = partitionKernelName(disk, n->partition->index, platformName);
+        r.mountpoint = mountpointFor(mounts, partitionOsPath(disk, n->partition->index, platformName));
+    }
+}
+
+void annotateOsDevice(NodeDetails& d, const Node& root, const NodePath& path, const platform::DiskInfo& disk, std::string_view platformName, const std::vector<OsMount>& mounts) {
+    if (path.empty()) {
+        d.osDevice = disk.osPath;
+        return;
+    }
+    const Node* n = nodeAt(root, path);
+    if (!n || n->kind != NodeKind::Partition || !n->partition) return;
+    const std::string osPath = partitionOsPath(disk, n->partition->index, platformName);
+    if (osPath.empty()) return;
+    d.osDevice = osPath;
+    d.mountpoint = mountpointFor(mounts, osPath);
+    std::vector<DetailRow> rows;
+    rows.push_back({"device", osPath});
+    if (!d.mountpoint.empty()) rows.push_back({"mounted at", d.mountpoint, false});
+    rows.insert(rows.end(), d.rows.begin(), d.rows.end());
+    d.rows = std::move(rows);
+    if (!d.mountpoint.empty()) d.canMount = false;   // the OS already has it; offer unmount instead
 }
 
 NodeDetails nodeDetails(const Node& root, const NodePath& path) {

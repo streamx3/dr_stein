@@ -75,6 +75,7 @@ struct PreviewRow {
     NodePath path;                    // in the preview tree ({} for a deleted partition)
     std::string name, typeCode, sizeText, change;   // change: "", "new", "rename", "shrink", "grow", "move", "type", "delete"
     int colorIndex = -1;              // stable across base and preview; -1 for free space
+    int index = -1;                   // partition index; -1 for free space
     bool isFree = false, changed = false, deleted = false;
 };
 std::vector<PreviewRow> previewRows(const stein::probe::Node& base, const stein::probe::Node& preview);

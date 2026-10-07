@@ -21,7 +21,7 @@ class SourceListModel : public QAbstractListModel {
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
 
 public:
-    enum Roles { Id = Qt::UserRole + 1, Group, Name, Subtitle, SizeText, Icon, Kind, Path, Selected, Locked };
+    enum Roles { Id = Qt::UserRole + 1, Group, Name, Subtitle, SizeText, Icon, Kind, Path, Selected, Locked, Target };
     explicit SourceListModel(QObject* parent = nullptr);
     int rowCount(const QModelIndex& = {}) const override { return static_cast<int>(m_items.size()); }
     QVariant data(const QModelIndex& index, int role) const override;
@@ -32,6 +32,8 @@ public:
     const core::SourceDescriptor* find(const std::string& id) const;
     int indexOf(const std::string& id) const;
     void setSelected(const std::string& id);
+    void setTarget(const std::string& id);              // the restore target, marked in red
+    const std::string& target() const { return m_target; }
     void replace(const core::SourceDescriptor& item);   // same id
     void remove(const std::string& id);
     void add(const core::SourceDescriptor& item);
@@ -43,7 +45,7 @@ Q_SIGNALS:
 
 private:
     std::vector<core::SourceDescriptor> m_items;
-    std::string m_selected;
+    std::string m_selected, m_target;
 };
 
 class TopologyModel : public QAbstractListModel {
@@ -56,7 +58,7 @@ class TopologyModel : public QAbstractListModel {
 public:
     enum Roles {
         Path = Qt::UserRole + 1, Depth, KindLabel, Name, Content, SizeText, Health, HealthText, Segment, IsMetadata, MetadataIndex,
-        CanBrowse, CanInspect, CanRepair, CanMount, IsLocked, UsedFraction, Selected
+        CanBrowse, CanInspect, CanRepair, CanMount, IsLocked, UsedFraction, Selected, OsDevice, Mountpoint
     };
     explicit TopologyModel(QObject* parent = nullptr);
     int rowCount(const QModelIndex& = {}) const override { return static_cast<int>(m_rows.size()); }
@@ -99,8 +101,12 @@ class NodeDetailsObject : public QObject {
     Q_PROPERTY(bool canMount READ canMount NOTIFY changed)
     Q_PROPERTY(bool isLockedContainer READ isLockedContainer NOTIFY changed)
     Q_PROPERTY(bool valid READ valid NOTIFY changed)
+    Q_PROPERTY(QString osDevice READ osDevice NOTIFY changed)
+    Q_PROPERTY(QString mountpoint READ mountpoint NOTIFY changed)
 
 public:
+    QString osDevice() const { return m_osDevice; }
+    QString mountpoint() const { return m_mountpoint; }
     explicit NodeDetailsObject(QObject* parent = nullptr) : QObject(parent) {}
     void set(const core::NodeDetails& d, bool valid);
     void setUsage(double fraction, const QString& label, const QString& text);
@@ -126,7 +132,7 @@ Q_SIGNALS:
     void changed();
 
 private:
-    QString m_kindLabel, m_title, m_regionText, m_usedLabel, m_usedText;
+    QString m_kindLabel, m_title, m_regionText, m_usedLabel, m_usedText, m_osDevice, m_mountpoint;
     QVariantList m_rows, m_notes, m_subvolumes;
     double m_usedFraction = -1;
     bool m_canBrowse = false, m_canInspect = false, m_canRepair = false, m_canMount = false, m_locked = false, m_valid = false;

@@ -232,6 +232,7 @@ std::vector<PreviewRow> previewRows(const probe::Node& base, const probe::Node& 
         const auto& p = *c.partition;
         seen[p.index] = true;
         r.colorIndex = colours.count(p.index) ? colours.at(p.index) : -1;
+        r.index = static_cast<int>(p.index);
         r.typeCode = typeCodeOf(p);
         r.name = displayName(c);
         r.sizeText = sizeBinaryOrDecimal(c.region.length);
@@ -271,6 +272,7 @@ std::vector<PreviewRow> previewRows(const probe::Node& base, const probe::Node& 
             r.typeCode = typeCodeOf(*c.partition);
             r.sizeText = sizeBinaryOrDecimal(c.partition->sectors() * ss);
             r.change = "delete";
+            r.index = static_cast<int>(c.partition->index);
             r.changed = r.deleted = true;
             r.colorIndex = colours.count(c.partition->index) ? colours.at(c.partition->index) : -1;
             out.push_back(std::move(r));

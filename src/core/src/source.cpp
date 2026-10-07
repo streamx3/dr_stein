@@ -133,7 +133,7 @@ Expected<SourceDescriptor> describeImageFile(const std::filesystem::path& file, 
     img.format = *fmt;
     img.formatName = std::string(image::toString(*fmt));
 
-    std::vector<std::string> sub{abs.parent_path().filename().string()};
+    std::vector<std::string> sub;   // the folder is in the identity line's full path; the sidebar line is for facts
     std::vector<std::string> id;
 
     if (*fmt == image::VdiskFormat::Stein) {
@@ -151,6 +151,8 @@ Expected<SourceDescriptor> describeImageFile(const std::filesystem::path& file, 
         img.sourceName = src.get("name").asString();
         img.sourceIdentity = src.get("identity").asString();
         img.created = info->manifest.get("created").asString();
+        img.createdText = isoToLocalText(img.created);
+        for (const auto& seg : info->segments) img.storedBytes += std::filesystem::file_size(seg.path, ec);
         if (auto prov = provenanceFromSource(src)) {
             img.partitionImage = true;
             img.provenanceText = prov->text();
@@ -160,8 +162,11 @@ Expected<SourceDescriptor> describeImageFile(const std::filesystem::path& file, 
             if (!seg.trailer) img.notes.push_back(seg.path.filename().string() + ": no trailer, recovered by scanning");
         if (img.partitionImage) sub.push_back("partition");
         sub.push_back(img.compressed ? "LZ4" : "uncompressed");
-        sub.push_back(img.locked ? "locked" : img.complete ? "complete" : "incomplete");
+        sub.push_back(sizeText(img.storedBytes) + " on disk");
+        if (img.locked || !img.complete) sub.push_back(img.locked ? "locked" : "incomplete");
         id.push_back("stein " + img.variant + (img.partitionImage ? " · partition image" : " · whole-device image"));
+        if (!img.createdText.empty()) id.push_back("created " + img.createdText);
+        id.push_back("stored " + sizeText(img.storedBytes));
         if (img.partitionImage) id.push_back(img.provenanceText);
         else if (!img.sourceName.empty()) id.push_back("source " + img.sourceName);
         if (!img.sourceIdentity.empty()) id.push_back(img.sourceIdentity);
@@ -178,6 +183,7 @@ Expected<SourceDescriptor> describeImageFile(const std::filesystem::path& file, 
             img.virtualSize = std::filesystem::file_size(abs, ec);
             sub.push_back("raw");
         }
+        img.storedBytes = img.virtualSize;
         id.push_back("raw image");
         id.push_back(sizeText(img.virtualSize));
     } else {
@@ -190,7 +196,10 @@ Expected<SourceDescriptor> describeImageFile(const std::filesystem::path& file, 
         img.segments = std::max<std::size_t>(1, vi.files.size());
         img.notes = vi.notes;
         img.storedHash = !vi.storedMd5.empty() ? vi.storedMd5 : vi.storedSha1;
+        img.storedBytes = std::filesystem::file_size(abs, ec);
+        for (const auto& f : vi.files) if (f != abs) img.storedBytes += std::filesystem::file_size(f, ec);
         sub.push_back(img.formatName);
+        sub.push_back(sizeText(img.storedBytes) + " on disk");
         if (img.segments > 1) sub.push_back(std::to_string(img.segments) + " segments");
         id.push_back(img.formatName + (vi.variant.empty() ? "" : " (" + vi.variant + ")"));
         if (!vi.storedMd5.empty()) id.push_back("stored MD5 recorded");
@@ -202,6 +211,26 @@ Expected<SourceDescriptor> describeImageFile(const std::filesystem::path& file, 
     s.identityLine = join(id);
     s.image = std::move(img);
     return s;
+}
+
+std::string partitionKernelName(const platform::DiskInfo& disk, std::uint32_t index, std::string_view platformName) {
+    std::string base = disk.kernelName;
+    if (base.empty()) {
+        base = std::filesystem::path(disk.osPath).filename().string();
+        if (platformName == "macos" && base.rfind("rdisk", 0) == 0) base = base.substr(1);
+    }
+    if (base.empty()) return {};
+    if (platformName == "macos") return base + "s" + std::to_string(index);
+    if (platformName == "linux") {
+        const bool endsInDigit = !base.empty() && base.back() >= '0' && base.back() <= '9';
+        return base + (endsInDigit ? "p" : "") + std::to_string(index);
+    }
+    return {};
+}
+
+std::string partitionOsPath(const platform::DiskInfo& disk, std::uint32_t index, std::string_view platformName) {
+    const std::string k = partitionKernelName(disk, index, platformName);
+    return k.empty() ? std::string() : "/dev/" + k;
 }
 
 bool isElevated() { return platform::current().isElevated(); }

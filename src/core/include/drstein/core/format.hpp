@@ -36,6 +36,8 @@ std::string etaText(double seconds);
 std::string percentText(double fraction);
 // "2026-09-28 22:14" in local time; "" for 0.
 std::string timeText(std::int64_t secondsSinceEpoch);
+// ISO 8601 UTC ("2026-10-06T23:28:08Z") to local "2026-10-07 01:28"; the input back when it does not parse.
+std::string isoToLocalText(const std::string& iso);
 // "drwxr-xr-x"
 std::string modeText(const stein::fs::Stat& st);
 // "OK", "Info", "Warning", "Error"
