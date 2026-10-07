@@ -73,6 +73,11 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
 - [x] K3 "Zero free space only" is the default when the target is a removable drive;
       byte-identical stays the default for fixed disks and files; an explicit choice
       sticks for that image.
+- [x] K4 Same default in the CLI: `stein image restore` without `--zeros` picks
+      `gaps` for a removable target (per `Platform::describe().removable`) and
+      `write` otherwise, and says so in the plan line. Checked on a file target;
+      the stick path needs root to open, so the removable branch is exercised only
+      through the same `describe()` the sidebar uses.
 
 ## J. Someday (research)
 - [ ] J1 Full Disk Access has to be granted again after every rebuild, and System
@@ -96,10 +101,10 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
 
 ## Notes
 
-### Status 2026-10-08
+### Status 2026-10-08 (end of day)
 
-Everything above is in the tree except the libstein-side restore speed-up (H1,
-left as research per your note). Verified on this Mac: A, B, C, D, F, I by
+Everything above is in the tree, including the libstein-side zero policy (K2–K4),
+which closed H1's recommendation. Verified on this Mac: A, B, C, D, F, I by
 screenshot on image files; E1 and E3/E4 by core tests (the stick needs root to
 open, which this session cannot do by itself); H2 by attaching a disk image with
 `hdiutil` while the app ran: it appeared in the sidebar on its own.

@@ -198,6 +198,19 @@ With that, the skip option can become the default for removable drives.
   Skip them) in the Restore form, with the plan line under it and in the
   confirmation and report.
 
-Defaults (app): a removable target starts on "Zero free space only"; fixed disks and
-image files start on "Write them". The default follows the target until the user
-picks a mode for that image; picking a new image resets it.
+Defaults, app and CLI alike: a removable target gets "Zero free space only" (`gaps`),
+fixed disks and image files get "Write them" (`write`). In the app the default
+follows the target until the user picks a mode for that image; picking a new image
+resets it. In the CLI, `--zeros` given explicitly always wins; without it the
+removable flag of `Platform::describe()` decides, and the plan line names the
+reason.
+
+### Status of the proposal's five steps
+
+| Step | State |
+|---|---|
+| 1. `zeroRange()` with a guaranteed-zero contract per device (BLKZEROOUT, hole punching, unmap + read-back) | not started; still the path to a *fast byte-identical* restore |
+| 2. `copyDevice` routes zero chunks through it | superseded for the common case by `ZeroPolicy::SkipInside` (done); still wanted for `Write` |
+| 3. Adaptive skip-identical chunks | not started |
+| 4. Reader exposes zero chunks | done in the form of `SteinReader::isStored()`, used by the planner |
+| 5. Expert "skip all zeros" flag | done (`ZeroPolicy::Skip`, "Skip them") |
