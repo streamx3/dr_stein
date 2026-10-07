@@ -117,7 +117,9 @@ ApplicationWindow {
                             function confirmThenRestore() {
                                 var t = imageView.controller.restoreTarget
                                 confirmDialog.title = t.isPartition ? "Restore into partition " + t.partitionIndex + " of " + t.title + "?" : "Restore onto " + t.title + "?"
-                                confirmDialog.body = t.isPartition ? "Every byte of that partition is overwritten with the image; the partition table and the other partitions stay. This cannot be undone." : "Every byte on the target is overwritten with the image. This cannot be undone."
+                                var z = imageView.controller.restoreZeros
+                                var zeroWords = z === "write" ? "Every byte" : z === "gaps" ? "Every non-zero byte of the image, plus zeros in the table's free space," : "Every non-zero byte of the image"
+                                confirmDialog.body = t.isPartition ? zeroWords + " is written over that partition; the partition table and the other partitions stay. This cannot be undone." : zeroWords + " is written over the target. This cannot be undone."
                                 confirmDialog.facts = [{ key: "Image", value: imageView.controller.restoreImagePath }, { key: "Scope", value: imageView.controller.restoreScopeText, mono: false }, { key: "Target", value: (t.isPartition ? t.targetName + " \u00b7 " + t.targetSizeText : t.title + " \u00b7 " + t.sizeText) + (t.removable ? " \u00b7 removable" : ""), mono: false }, { key: "Path", value: t.path }, { key: "Serial", value: t.serial.length ? t.serial : "\u2014" }, { key: "Zero ranges", value: imageView.controller.restoreZeroPlanText.length ? imageView.controller.restoreZeroPlanText : (imageView.controller.restoreZeros === "write" ? "written" : imageView.controller.restoreZeros === "gaps" ? "free space zeroed, partitions kept" : "skipped"), mono: false }]
                                 confirmDialog.expectedText = t.kind === "disk" ? t.kernelName : ""
                                 confirmDialog.confirmLabel = "Restore"
