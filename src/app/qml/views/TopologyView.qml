@@ -74,6 +74,7 @@ Item {
         }
 
         RowLayout {
+            id: split
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.space6
@@ -82,10 +83,36 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.minimumWidth: 0
                 spacing: 0
+                // Column widths follow the content: Content and Size are as wide as their
+                // widest cell (never narrower than their caption). Node takes the rest and is
+                // the first to give way; only once Node is down to nodeMin does Content
+                // start to shrink, and never below its caption.
+                FontMetrics { id: contentFm; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall }
+                FontMetrics { id: sizeFm; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
+                FontMetrics { id: captionFm; font.family: Theme.fontFamily; font.pixelSize: Theme.fontMicro; font.letterSpacing: 1; font.capitalization: Font.AllUppercase }
+                QtObject {
+                    id: cols
+                    readonly property int pad: 10
+                    readonly property int gap: 12
+                    readonly property int nodeMin: 180
+                    function widest(fm, texts, floor) {
+                        var w = floor
+                        for (var i = 0; i < texts.length; ++i) w = Math.max(w, Math.ceil(fm.advanceWidth(texts[i])))
+                        return w
+                    }
+                    readonly property int contentMin: Math.ceil(captionFm.advanceWidth("CONTENT")) + 2
+                    readonly property int contentNatural: widest(contentFm, Workspace.topology.contentTexts, contentMin) + 2
+                    readonly property int size: widest(sizeFm, Workspace.topology.sizeTexts, Math.ceil(captionFm.advanceWidth("SIZE"))) + 2
+                    readonly property int health: Math.max(Math.ceil(captionFm.advanceWidth("HEALTH")), Math.ceil(contentFm.advanceWidth("WARN"))) + 2
+                    readonly property int fixed: 2 * pad + 3 * gap + size + health
+                    readonly property int content: Math.max(contentMin, Math.min(contentNatural, tree.width - fixed - nodeMin))
+                }
                 ColumnHeader {
                     Layout.fillWidth: true
-                    columns: [{ label: "Node" }, { label: "Content", width: 210 }, { label: "Size", width: 90, align: "right" }, { label: "Health", width: 48, align: "right" }]
+                    leftPad: cols.pad; rightPad: cols.pad; spacing: cols.gap
+                    columns: [{ label: "Node" }, { label: "Content", width: cols.content }, { label: "Size", width: cols.size, align: "right" }, { label: "Health", width: cols.health, align: "right" }]
                 }
                 ListView {
                     id: tree
@@ -105,9 +132,9 @@ Item {
                         color: model.selected ? Theme.surface : (rowMouse.containsMouse ? Theme.surface : "transparent")
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 10
-                            spacing: 12
+                            anchors.leftMargin: cols.pad
+                            anchors.rightMargin: cols.pad
+                            spacing: cols.gap
                             // Name cell: swatch, name, OS device id, a small mount mark. It clips and elides;
                             // it never pushes the fixed columns.
                             Item {
@@ -143,10 +170,10 @@ Item {
                                     Item { Layout.fillWidth: true }
                                 }
                             }
-                            Text { Layout.preferredWidth: 210; Layout.minimumWidth: 210; Layout.maximumWidth: 210; text: row.model.content; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
-                            Text { Layout.preferredWidth: 90; Layout.minimumWidth: 90; Layout.maximumWidth: 90; elide: Text.ElideRight; text: row.model.sizeText; horizontalAlignment: Text.AlignRight; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300) }
+                            Text { Layout.preferredWidth: cols.content; Layout.minimumWidth: cols.content; Layout.maximumWidth: cols.content; text: row.model.content; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
+                            Text { Layout.preferredWidth: cols.size; Layout.minimumWidth: cols.size; Layout.maximumWidth: cols.size; elide: Text.ElideRight; text: row.model.sizeText; horizontalAlignment: Text.AlignRight; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300) }
                             Text {
-                                Layout.preferredWidth: 48; Layout.minimumWidth: 48; Layout.maximumWidth: 48
+                                Layout.preferredWidth: cols.health; Layout.minimumWidth: cols.health; Layout.maximumWidth: cols.health
                                 horizontalAlignment: Text.AlignRight
                                 visible: row.model.healthText.length > 0
                                 text: row.model.health === "error" ? "FAIL" : row.model.health === "warning" ? "WARN" : "OK"
@@ -168,9 +195,13 @@ Item {
             }
 
             // Details.
+            // The card gives way (down to 260) before the table has to squeeze Node
+            // below nodeMin or Content below its widest cell.
             StCard {
                 id: details
-                Layout.preferredWidth: 320
+                Layout.preferredWidth: Math.max(260, Math.min(320, split.width - split.spacing - (cols.fixed + cols.contentNatural + cols.nodeMin)))
+                Layout.minimumWidth: Layout.preferredWidth
+                Layout.maximumWidth: Layout.preferredWidth
                 Layout.fillHeight: true
                 gap: Theme.space3
                 ColumnLayout {

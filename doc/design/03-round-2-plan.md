@@ -121,6 +121,11 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
       qualified, layout-managed items use implicit/Layout sizes, and the C++
       `Q_PROPERTY` types that are in-namespace pointers are spelled fully qualified
       so the generated qmltypes resolve them.
+- [x] L6 Topology columns fit their content: Content and Size are measured from
+      the model's texts (`contentTexts` / `sizeTexts`) with `FontMetrics`, never
+      narrower than their caption. Node takes the rest and yields first, down to
+      180 px; then Content shrinks towards its caption. The details card gives way
+      (320 → 260) before the table has to squeeze.
 - [x] L4 Drag-out from Browse: the entry is staged to a temp copy when the drag
       starts and offered as a `text/uri-list`; Finder / Explorer copy it. Capped at
       1 GiB of files per drag (toast points at Copy out); staging is removed at quit.

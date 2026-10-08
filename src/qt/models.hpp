@@ -54,6 +54,9 @@ class TopologyModel : public QAbstractListModel {
     QML_UNCREATABLE("owned by Workspace")
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
     Q_PROPERTY(int selectedRow READ selectedRow NOTIFY selectedRowChanged)
+    // Column texts in row order, so the view can size the columns to their content.
+    Q_PROPERTY(QStringList contentTexts READ contentTexts NOTIFY countChanged)
+    Q_PROPERTY(QStringList sizeTexts READ sizeTexts NOTIFY countChanged)
 
 public:
     enum Roles {
@@ -71,6 +74,8 @@ public:
     void setSelectedRow(int row);
     int rowForPath(const core::NodePath& path) const;   // first non-metadata row with this path
     Q_INVOKABLE QVariantMap get(int row) const;
+    QStringList contentTexts() const;
+    QStringList sizeTexts() const;
 
 Q_SIGNALS:
     void countChanged();

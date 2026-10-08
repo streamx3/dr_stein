@@ -171,6 +171,20 @@ int TopologyModel::rowForPath(const core::NodePath& path) const {
     return -1;
 }
 
+QStringList TopologyModel::contentTexts() const {
+    QStringList out;
+    out.reserve(static_cast<qsizetype>(m_rows.size()));
+    for (const auto& r : m_rows) out << qs(r.content);
+    return out;
+}
+
+QStringList TopologyModel::sizeTexts() const {
+    QStringList out;
+    out.reserve(static_cast<qsizetype>(m_rows.size()));
+    for (const auto& r : m_rows) out << qs(r.sizeText);
+    return out;
+}
+
 QVariantMap TopologyModel::get(int row) const {
     QVariantMap m;
     const auto idx = index(row);
