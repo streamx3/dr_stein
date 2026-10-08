@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Byte-proportional bar · tree table · details card. (Mockup: Topology.)
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -119,7 +120,7 @@ Item {
                                     anchors.fill: parent
                                     spacing: 8
                                     Rectangle {
-                                        width: 8; height: 8; radius: 2
+                                        implicitWidth: 8; implicitHeight: 8; radius: 2
                                         color: row.model.isMetadata ? Theme.neutralStep(600)
                                              : row.model.kindLabel === "Free" ? Theme.sunken
                                              : row.model.segment >= 0 ? Theme.partitionColor(Workspace.segments[row.model.segment] !== undefined ? Workspace.segments[row.model.segment].colorIndex : row.model.segment)
@@ -206,6 +207,7 @@ Item {
                         Repeater {
                             model: Workspace.details.notes
                             delegate: Rectangle {
+                                id: noteItem
                                 required property var modelData
                                 Layout.fillWidth: true
                                 implicitHeight: noteRow.implicitHeight + 16
@@ -214,8 +216,8 @@ Item {
                                 RowLayout {
                                     id: noteRow
                                     anchors.fill: parent; anchors.margins: 8; spacing: 8
-                                    Text { text: modelData.code; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.healthColor(modelData.severity); Layout.alignment: Qt.AlignTop }
-                                    Text { Layout.fillWidth: true; text: modelData.message; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; wrapMode: Text.WordWrap }
+                                    Text { text: noteItem.modelData.code; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.healthColor(noteItem.modelData.severity); Layout.alignment: Qt.AlignTop }
+                                    Text { Layout.fillWidth: true; text: noteItem.modelData.message; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; wrapMode: Text.WordWrap }
                                 }
                             }
                         }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Add or edit a partition. Empty fields keep the library's defaults (add:
 // largest free region, 1 MiB aligned; edit: unchanged).
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import DrStein

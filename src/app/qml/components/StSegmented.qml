@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // The ".seg" control: joined options, the current one ringed in the accent.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import DrStein
@@ -43,7 +44,7 @@ Rectangle {
                 border.width: current ? 1 : 0
                 border.color: Theme.accent
                 Rectangle {   // separator
-                    visible: index > 0 && !current
+                    visible: opt.index > 0 && !opt.current
                     width: 1; height: parent.height - 10
                     anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                     color: Theme.divider

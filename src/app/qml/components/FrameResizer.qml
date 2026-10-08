@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Resize bands along the edges of a frameless window; the compositor does the
 // resize through startSystemResize (xdg-shell on Wayland, _NET_WM_MOVERESIZE on X11).
+pragma ComponentBehavior: Bound
 import QtQuick
 import DrStein
 

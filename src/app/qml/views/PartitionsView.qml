@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Current/preview bars · preview tree · operation stack. Nothing is written
 // before Apply, which confirms with the device identity.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -99,7 +100,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 8
-                                Rectangle { width: 8; height: 8; radius: 2; color: prow.modelData.isFree ? Theme.sunken : Theme.partitionColor(prow.modelData.colorIndex); border.width: prow.modelData.isFree ? 1 : 0; border.color: Theme.neutralStep(700) }
+                                Rectangle { implicitWidth: 8; implicitHeight: 8; radius: 2; color: prow.modelData.isFree ? Theme.sunken : Theme.partitionColor(prow.modelData.colorIndex); border.width: prow.modelData.isFree ? 1 : 0; border.color: Theme.neutralStep(700) }
                                 Text { Layout.fillWidth: true; text: prow.modelData.name; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; font.strikeout: prow.modelData.deleted; color: prow.modelData.deleted ? Theme.textMuted : Theme.text; elide: Text.ElideRight }
                             }
                             Text { Layout.preferredWidth: 150; Layout.minimumWidth: 150; Layout.maximumWidth: 150; text: prow.modelData.typeCode; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
@@ -148,6 +149,7 @@ Item {
                         model: view.editor.pending
                         ScrollBar.vertical: ScrollBar {}
                         delegate: Rectangle {
+                            id: pendingRow
                             required property var modelData
                             width: ListView.view.width
                             height: inner.implicitHeight + 16
@@ -156,12 +158,12 @@ Item {
                             RowLayout {
                                 id: inner
                                 anchors.fill: parent; anchors.margins: 8; anchors.leftMargin: 10; spacing: 10
-                                Text { text: modelData.n; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textDim; Layout.alignment: Qt.AlignTop }
+                                Text { text: pendingRow.modelData.n; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textDim; Layout.alignment: Qt.AlignTop }
                                 ColumnLayout { Layout.fillWidth: true; spacing: 1
-                                    Text { Layout.fillWidth: true; text: modelData.title; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; wrapMode: Text.WordWrap }
-                                    Text { Layout.fillWidth: true; text: modelData.detail; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WrapAnywhere }
+                                    Text { Layout.fillWidth: true; text: pendingRow.modelData.title; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; wrapMode: Text.WordWrap }
+                                    Text { Layout.fillWidth: true; text: pendingRow.modelData.detail; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WrapAnywhere }
                                 }
-                                StTag { visible: modelData.destructive; text: "destructive"; variant: "danger"; Layout.alignment: Qt.AlignTop }
+                                StTag { visible: pendingRow.modelData.destructive; text: "destructive"; variant: "danger"; Layout.alignment: Qt.AlignTop }
                             }
                         }
                     }

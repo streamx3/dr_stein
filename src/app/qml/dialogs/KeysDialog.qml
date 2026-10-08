@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Add or remove passphrase slots of an encrypted .stein image.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import DrStein
@@ -14,16 +15,17 @@ StDialog {
     Repeater {
         model: dialog.controller ? dialog.controller.keys : []
         delegate: Rectangle {
+            id: slotRow
             required property var modelData
             Layout.fillWidth: true
-            height: 36
+            implicitHeight: 36
             radius: Theme.radiusSm
             color: Theme.sunken
             RowLayout {
                 anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 10
-                Text { text: "slot " + modelData.id; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.text }
-                Text { Layout.fillWidth: true; text: (modelData.label.length ? modelData.label + " · " : "") + modelData.kdf; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight }
-                StButton { text: "Remove"; variant: "danger"; small: true; enabled: current.text.length > 0; onClicked: { var e = dialog.controller.removeKey(current.text, modelData.id); if (e.message !== undefined) Workspace.error(e) } }
+                Text { text: "slot " + slotRow.modelData.id; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.text }
+                Text { Layout.fillWidth: true; text: (slotRow.modelData.label.length ? slotRow.modelData.label + " · " : "") + slotRow.modelData.kdf; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight }
+                StButton { text: "Remove"; variant: "danger"; small: true; enabled: current.text.length > 0; onClicked: { var e = dialog.controller.removeKey(current.text, slotRow.modelData.id); if (e.message !== undefined) Workspace.error(e) } }
             }
         }
     }

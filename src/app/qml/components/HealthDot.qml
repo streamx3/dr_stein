@@ -3,19 +3,20 @@ import QtQuick
 import DrStein
 
 Row {
+    id: dot
     property string level: "ok"      // ok | info | warning | error
     property string text: ""
     spacing: 6
     Rectangle {
         width: 6; height: 6; radius: 3
         anchors.verticalCenter: parent.verticalCenter
-        color: text.length ? Theme.healthColor(level) : "transparent"
+        color: dot.text.length ? Theme.healthColor(dot.level) : "transparent"
     }
     Text {
-        text: parent.text
+        text: dot.text
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontTiny
-        color: level === "warning" ? Theme.warning : level === "error" ? Theme.danger : Theme.textSoft
+        color: dot.level === "warning" ? Theme.warning : dot.level === "error" ? Theme.danger : Theme.textSoft
         anchors.verticalCenter: parent.verticalCenter
     }
 }

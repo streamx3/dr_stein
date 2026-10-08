@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Struct picker · hex pane · parsed pane; edits preview on an overlay until Write.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -89,7 +90,7 @@ Item {
                     spacing: 0
                     Item {
                         Layout.fillWidth: true
-                        height: 26
+                        Layout.preferredHeight: 26
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: 12
@@ -185,7 +186,7 @@ Item {
                     spacing: 0
                     Item {
                         Layout.fillWidth: true
-                        height: 26
+                        Layout.preferredHeight: 26
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: 12

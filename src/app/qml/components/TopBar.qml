@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Brand · view tabs · elevation tag · refresh · theme toggle · settings.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic

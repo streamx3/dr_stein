@@ -36,7 +36,7 @@ class JobRunner : public QObject {
     Q_PROPERTY(QString rateText READ rateText NOTIFY progressChanged)
     Q_PROPERTY(QString etaText READ etaText NOTIFY progressChanged)
     Q_PROPERTY(QStringList messages READ messages NOTIFY messagesChanged)
-    Q_PROPERTY(ReportModel* report READ report CONSTANT)
+    Q_PROPERTY(drstein::ui::ReportModel* report READ report CONSTANT)
     Q_PROPERTY(bool hasResult READ hasResult NOTIFY finished)
     Q_PROPERTY(bool lastOk READ lastOk NOTIFY finished)
     Q_PROPERTY(QString lastTitle READ lastTitle NOTIFY finished)

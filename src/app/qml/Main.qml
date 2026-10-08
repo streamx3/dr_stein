@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // The shell: top bar, sidebar, identity strip, the seven views, dialogs.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -44,8 +45,9 @@ ApplicationWindow {
     Repeater {
         model: 7
         Item {
+            id: viewShortcut
             required property int index
-            Shortcut { sequence: "Ctrl+" + (index + 1); onActivated: Workspace.view = window.viewIds[index] }
+            Shortcut { sequence: "Ctrl+" + (viewShortcut.index + 1); onActivated: Workspace.view = window.viewIds[viewShortcut.index] }
         }
     }
 

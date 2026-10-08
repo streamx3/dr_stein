@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Minimise / maximise / close for platforms whose caption buttons we draw
 // ourselves (Windows, Linux). macOS keeps its traffic lights.
+pragma ComponentBehavior: Bound
 import QtQuick
 import DrStein
 

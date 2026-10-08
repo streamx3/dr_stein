@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Uppercase column captions over a table, with the fading rule beneath.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import DrStein

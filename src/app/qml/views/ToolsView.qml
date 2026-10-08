@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Surface scan (read-only) and the capacity test (destructive, confirmed).
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -117,7 +118,7 @@ Item {
                     columns: 2; columnSpacing: Theme.space3; rowSpacing: 4
                     Kicker { text: "Target"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
                     Kicker { text: "Mode"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
-                    Rectangle { Layout.fillWidth: true; height: 30; radius: Theme.radiusMd; color: Theme.bg; border.width: 1; border.color: Theme.edge1
+                    Rectangle { Layout.fillWidth: true; implicitHeight: 30; radius: Theme.radiusMd; color: Theme.bg; border.width: 1; border.color: Theme.edge1
                         RowLayout { anchors.fill: parent; anchors.leftMargin: 9; anchors.rightMargin: 9; spacing: 8
                             Text { text: view.tools.hasSource ? view.tools.targetTitle : "—"; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.text; elide: Text.ElideRight }
                             Text { Layout.fillWidth: true; text: view.tools.targetPath; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textMuted; elide: Text.ElideMiddle }

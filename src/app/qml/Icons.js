@@ -7,7 +7,6 @@ var paths = {
     nvme: "M4 7h16v10H4z M8 11h.01 M4 12h16",
     sata: "M4 5h16v14H4z M7 15h.01 M4 15h16",
     disk: "M4 5h16v14H4z M7 15h.01 M4 15h16",
-    usb: "M12 4.5v15 M12 3l2 3h-4z M12 21a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3 M12 13.5l5-3V8.5 M16 6.5h2v2h-2z M12 13.5l-5-3V8.5 M7 8.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4",
     sd: "M7 3h7l4 4v14H7z M10 7h1 M13 7h1",
     virtual: "M4 6h16v8H4z M8 18h8 M12 14v4 M8 10h.01",
     image: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z M14 3v5h5",
@@ -52,7 +51,17 @@ var paths = {
     key: "M15 9a4 4 0 1 0-3.9 3.1L4 19v2h3v-2h2v-2h2l1.9-1.9A4 4 0 0 0 15 9z M15 9h.01"
 }
 
+// Filled shapes, drawn in the icon colour without a stroke.
+// usb: the USB trident (public-domain Wikimedia drawing), rotated upright and fit to the grid.
+var filled = {
+    usb: "M12 2 L10.72 4.22 L11.63 4.22 L11.63 15.58 L9.3 13.37 C9.15 13.18 9.04 12.93 9.03 12.68 C9.03 11.65 9.03 11.05 9.03 10.82 C9.47 10.67 9.78 10.26 9.78 9.78 C9.78 9.16 9.28 8.67 8.67 8.67 C8.05 8.67 7.56 9.16 7.56 9.78 C7.56 10.26 7.87 10.67 8.3 10.82 L8.3 12.66 C8.3 13.15 8.57 13.68 8.89 14.01 C8.88 14 8.87 13.99 8.89 14.01 C8.9 14.02 11.37 16.35 11.37 16.35 C11.52 16.54 11.63 16.79 11.63 17.04 L11.63 18.33 C10.78 18.5 10.14 19.25 10.14 20.14 C10.14 21.17 10.98 22 12 22 C13.02 22 13.86 21.17 13.86 20.14 C13.86 19.25 13.22 18.5 12.37 18.33 L12.37 17.06 C12.37 17.06 12.37 17.06 12.37 17.05 L12.37 14.26 C12.37 14.01 12.48 13.76 12.63 13.58 C12.63 13.58 15.1 11.24 15.11 11.23 C15.13 11.21 15.12 11.22 15.11 11.23 C15.43 10.9 15.7 10.38 15.7 9.88 L15.7 8.11 L16.44 8.11 L16.44 5.89 L14.22 5.89 L14.22 8.11 L14.97 8.11 C14.97 8.11 14.97 8.58 14.97 9.9 C14.96 10.15 14.85 10.4 14.7 10.59 L12.37 12.8 L12.37 4.22 L13.28 4.22 L12 2z"
+}
+
 function svg(name, color, strokeWidth) {
+    if (filled[name] !== undefined) {
+        var fb = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="' + color + '" stroke="none"><path d="' + filled[name] + '"/></svg>'
+        return "data:image/svg+xml;utf8," + encodeURIComponent(fb)
+    }
     var d = paths[name] !== undefined ? paths[name] : paths.dot
     var sw = strokeWidth !== undefined ? strokeWidth : 1.6
     var body = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + color

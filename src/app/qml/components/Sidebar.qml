@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Disks and images, grouped, with "Open image file…" at the bottom.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic

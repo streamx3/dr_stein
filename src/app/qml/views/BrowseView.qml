@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Directory tree · entries · preview card, over a read-only Reader.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -60,14 +61,15 @@ Item {
                     Repeater {
                         model: view.browser.breadcrumbs
                         delegate: Row {
+                            id: crumb
                             required property var modelData
                             spacing: 4
-                            Text { text: "/"; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textDim; visible: modelData.index > 0 || true }
+                            Text { text: "/"; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textDim; visible: crumb.modelData.index > 0 || true }
                             Text {
-                                text: modelData.index === 0 ? "" : modelData.name
-                                visible: modelData.index > 0
+                                text: crumb.modelData.index === 0 ? "" : crumb.modelData.name
+                                visible: crumb.modelData.index > 0
                                 font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.text
-                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: view.browser.jumpTo(modelData.index) }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: view.browser.jumpTo(crumb.modelData.index) }
                             }
                         }
                     }
@@ -132,7 +134,7 @@ Item {
                             anchors.fill: parent
                             anchors.leftMargin: 8 + treeRow.depth * 14
                             spacing: 6
-                            Text { width: 10; text: treeRow.hasChildren ? (treeRow.expanded ? "▾" : "▸") : ""; font.pixelSize: Theme.fontMicro; color: Theme.textDim }
+                            Text { Layout.preferredWidth: 10; text: treeRow.hasChildren ? (treeRow.expanded ? "▾" : "▸") : ""; font.pixelSize: Theme.fontMicro; color: Theme.textDim }
                             Icon { name: "folder"; size: 14; color: Theme.accentStep(400) }
                             Text { Layout.fillWidth: true; text: treeRow.model.name; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: treeRow.model.isCurrent ? Theme.accentStep(100) : Theme.textBright; elide: Text.ElideRight }
                         }

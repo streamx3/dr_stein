@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Errors from the workspace and the job runner, bottom-right, auto-hiding.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import DrStein

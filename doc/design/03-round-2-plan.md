@@ -113,7 +113,14 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
       details card still names them), a small eject mark with a tooltip instead of a
       "mounted" tag, the name cell clips and elides, Health is a word: OK muted,
       WARN / FAIL bold in colour.
-- [x] L3 USB icon redrawn symmetric (the mockup's own path was the crooked one).
+- [x] L3 USB icon: the Wikimedia trident supplied by Andrii, rotated upright and
+      scaled onto the 24-unit grid as a filled path (`Icons.filled`); takes the
+      icon colour like the stroke icons.
+- [x] L5 qmllint clean (0 warnings): `pragma ComponentBehavior: Bound` everywhere a
+      delegate reads outer ids, every delegate and root has an id and accesses are
+      qualified, layout-managed items use implicit/Layout sizes, and the C++
+      `Q_PROPERTY` types that are in-namespace pointers are spelled fully qualified
+      so the generated qmltypes resolve them.
 - [x] L4 Drag-out from Browse: the entry is staged to a temp copy when the drag
       starts and offered as a `text/uri-list`; Finder / Explorer copy it. Capped at
       1 GiB of files per drag (toast points at Copy out); staging is removed at quit.

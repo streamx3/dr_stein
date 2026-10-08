@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Create / Restore / Verify / Keys form on the left, the job card on the right.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -73,7 +74,7 @@ Item {
                             ColumnLayout { Layout.columnSpan: 2; Layout.fillWidth: true; spacing: 4
                                 Kicker { text: "Source"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
                                 RowLayout { Layout.fillWidth: true; spacing: 6
-                                    Rectangle { Layout.preferredWidth: 220; height: 30; radius: Theme.radiusMd; color: Theme.bg; border.width: 1; border.color: Theme.edge1
+                                    Rectangle { Layout.preferredWidth: 220; Layout.preferredHeight: 30; radius: Theme.radiusMd; color: Theme.bg; border.width: 1; border.color: Theme.edge1
                                         RowLayout { anchors.fill: parent; anchors.leftMargin: 9; anchors.rightMargin: 9; spacing: 8
                                             Text { Layout.fillWidth: true; text: view.controller.hasSource ? view.controller.sourceTitle : "select a disk or image in the sidebar"; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300); elide: Text.ElideRight }
                                         }
@@ -217,17 +218,18 @@ Item {
                         Repeater {
                             model: view.controller.keys
                             delegate: Rectangle {
+                                id: keyRow
                                 required property var modelData
                                 Layout.fillWidth: true
-                                height: 40
+                                implicitHeight: 40
                                 radius: Theme.radiusSm
                                 color: Theme.sunken
                                 RowLayout {
                                     anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 10
                                     Icon { name: "key"; size: 14; color: Theme.accentStep(400) }
-                                    Text { text: "slot " + modelData.id; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.text }
-                                    Text { text: modelData.label; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textBright }
-                                    Text { Layout.fillWidth: true; text: modelData.kdf; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight }
+                                    Text { text: "slot " + keyRow.modelData.id; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.text }
+                                    Text { text: keyRow.modelData.label; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textBright }
+                                    Text { Layout.fillWidth: true; text: keyRow.modelData.kdf; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight }
                                 }
                             }
                         }

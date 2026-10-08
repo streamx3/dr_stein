@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The running / finished operation: phase, bar, stats, then the report.
 // Shown by every view that starts jobs of its `kind`.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
@@ -103,7 +104,7 @@ StCard {
                 anchors.rightMargin: 8
                 spacing: 10
                 Rectangle {
-                    width: 8; height: 8; radius: 4
+                    implicitWidth: 8; implicitHeight: 8; radius: 4
                     Layout.alignment: Qt.AlignTop
                     Layout.topMargin: 5
                     color: !row.isReport ? Theme.accent

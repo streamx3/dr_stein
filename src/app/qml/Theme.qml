@@ -10,7 +10,7 @@ QtObject {
     id: theme
 
     readonly property bool dark: Settings.colorScheme === "dark"
-                                 || (Settings.colorScheme === "system" && Qt.styleHints.colorScheme === Qt.Dark)
+                                 || (Settings.colorScheme === "system" && Application.styleHints.colorScheme === Qt.Dark)
 
     readonly property var palettes: ({
         blurple: {
@@ -93,7 +93,7 @@ QtObject {
     function partitionTextColor(i) { return i < 0 ? textMuted : (i % partitionPalette.length < 2 || i % partitionPalette.length === 4 ? accentStep(100) : textBright) }
 
     // Type.
-    readonly property string fontFamily: Qt.fontFamilies().indexOf("Inter") >= 0 ? "Inter" : Qt.application.font.family
+    readonly property string fontFamily: Qt.fontFamilies().indexOf("Inter") >= 0 ? "Inter" : Application.font.family
     readonly property string monoFamily: Qt.platform.os === "osx" ? "Menlo" : (Qt.platform.os === "windows" ? "Consolas" : "DejaVu Sans Mono")
     readonly property int fontSize: 13
     readonly property int fontSmall: 12

@@ -24,9 +24,9 @@ class Workspace : public QObject {
     Q_OBJECT
     QML_ELEMENT
     QML_SINGLETON
-    Q_PROPERTY(SourceListModel* sources READ sources CONSTANT)
-    Q_PROPERTY(TopologyModel* topology READ topology CONSTANT)
-    Q_PROPERTY(NodeDetailsObject* details READ details CONSTANT)
+    Q_PROPERTY(drstein::ui::SourceListModel* sources READ sources CONSTANT)
+    Q_PROPERTY(drstein::ui::TopologyModel* topology READ topology CONSTANT)
+    Q_PROPERTY(drstein::ui::NodeDetailsObject* details READ details CONSTANT)
     Q_PROPERTY(bool elevated READ elevated CONSTANT)
     Q_PROPERTY(QString platformName READ platformName CONSTANT)
     Q_PROPERTY(QString view READ view WRITE setView NOTIFY viewChanged)

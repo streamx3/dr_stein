@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // One card per profile: disk, match, image, made, fits, three big buttons.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic

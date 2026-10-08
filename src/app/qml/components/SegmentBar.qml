@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The byte-proportional bar: one block per partition or free region, widths
 // by length with a minimum so tiny partitions stay clickable.
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import DrStein
@@ -59,6 +60,7 @@ Item {
 
                 // Free space: diagonal hatching.
                 Canvas {
+                    id: hatch
                     anchors.fill: parent
                     visible: seg.isFree
                     onPaint: {
@@ -70,7 +72,7 @@ Item {
                             ctx.beginPath(); ctx.moveTo(x, height); ctx.lineTo(x + height, 0); ctx.stroke()
                         }
                     }
-                    Connections { target: Theme; function onDarkChanged() { requestPaint() } }
+                    Connections { target: Theme; function onDarkChanged() { hatch.requestPaint() } }
                 }
                 Text {
                     anchors.left: parent.left
@@ -78,11 +80,11 @@ Item {
                     anchors.leftMargin: 8
                     anchors.rightMargin: 6
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: !bar.compact || (modelData.label !== undefined && modelData.label.length > 0 && parent.width > 40)
-                    text: modelData.label !== undefined ? modelData.label : ""
+                    visible: !bar.compact || (seg.modelData.label !== undefined && seg.modelData.label.length > 0 && parent.width > 40)
+                    text: seg.modelData.label !== undefined ? seg.modelData.label : ""
                     font.family: Theme.fontFamily
                     font.pixelSize: bar.compact ? Theme.fontMicro : Theme.fontTiny
-                    color: seg.current ? Theme.accentStep(100) : Theme.partitionTextColor(seg.isFree ? -1 : modelData.colorIndex)
+                    color: seg.current ? Theme.accentStep(100) : Theme.partitionTextColor(seg.isFree ? -1 : seg.modelData.colorIndex)
                     elide: Text.ElideRight
                 }
                 MouseArea {
@@ -90,8 +92,8 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     hoverEnabled: true
                     onClicked: bar.clicked(seg.index)
-                    ToolTip.visible: containsMouse && modelData.label !== undefined && modelData.label.length > 0
-                    ToolTip.text: modelData.label !== undefined ? modelData.label : ""
+                    ToolTip.visible: containsMouse && seg.modelData.label !== undefined && seg.modelData.label.length > 0
+                    ToolTip.text: seg.modelData.label !== undefined ? seg.modelData.label : ""
                     ToolTip.delay: 500
                 }
             }
