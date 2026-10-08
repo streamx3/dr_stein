@@ -126,6 +126,8 @@ Create / Restore / Verify / Keys, format and compression pickers) and the disk
 bar (`SegmentBar`) are rounded at their two ends and square where options join,
 the GTK "linked" look, through Rectangle's per-corner radii; that is why the app
 needs Qt 6.7 (2026-10-09). The current option's ring follows the same corners.
+When a row is squeezed (`twoLine`, the Hex structure switcher), the options
+shrink and their labels break into two lines, never below the longest word.
 
 **Layout rule learned.** Qt Quick Layouts never shrink below the children's
 minimum, and an item without `Layout.fillWidth` has minimum = implicit width.

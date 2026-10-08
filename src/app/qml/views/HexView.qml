@@ -48,12 +48,13 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.space3
-            // The structure switcher wraps into more rows rather than crowding out the position text.
+            // The structure switcher gives way first: its labels break into two lines rather than
+            // crowding out the position text.
             StSegmented {
                 id: structs
-                wrap: true
+                twoLine: true
                 Layout.fillWidth: true
-                Layout.minimumWidth: widestOption
+                Layout.minimumWidth: minRowWidth
                 Layout.maximumWidth: oneRowWidth
                 model: view.inspector.structs.map(function(s, i) { return { label: s.label, value: i } })
                 currentValue: view.inspector.currentStruct
