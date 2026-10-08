@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(dr_stein VERSION 0.1.0 LANGUAGES CXX)
+project(dr_stein VERSION 0.1.1 LANGUAGES CXX)
 
 # Dr Stein: the Qt 6 / QML desktop front-end of libstein. The libraries are a git
 # submodule built with add_subdirectory; nothing in them knows about Qt
