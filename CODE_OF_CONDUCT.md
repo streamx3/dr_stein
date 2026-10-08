@@ -32,6 +32,21 @@ Say what you mean, show the evidence, and accept being shown wrong. Report what 
 tests did, not what you hoped they would do. If you review, review the change in
 front of you.
 
+## 4. Trust, and the one exception to rule 1
+
+This rule is the maintainer's own and is written in the first person.
+
+A contributor who holds citizenship of russia (spelled that way on purpose) or of
+any of its allies, or who has any other relation to them, will be met with
+distrust: contributions are not refused on sight, but they get no benefit of the
+doubt, are reviewed with that in mind, and may be declined without a technical
+reason. I acknowledge this is broad, unselective and possibly unfair to
+individuals. I have neither the time nor the means to verify the honesty of any
+given person, and the risk of the alternative is mine to carry. This is the only
+place politics enters this document, and it is here because it is a trust decision
+about the code, not a debate; it is not open for discussion in the project's
+spaces.
+
 ## Enforcement
 
 Maintainers keep the spaces to these rules. Off-topic material is removed; a
