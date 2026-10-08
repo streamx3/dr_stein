@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// The ".seg" control: joined options, the current one ringed in the accent.
+// The ".seg" control: linked options, rounded at the two ends and square where they
+// join (per-corner radii, Qt 6.7), the current one ringed in the accent with the same corners.
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
@@ -27,6 +28,7 @@ Rectangle {
         anchors.margins: 1
         spacing: 0
         Repeater {
+            id: options
             model: seg.model
             delegate: Rectangle {
                 id: opt
@@ -39,8 +41,13 @@ Rectangle {
                 Layout.fillHeight: true
                 implicitWidth: txt.implicitWidth + 24
                 implicitHeight: txt.implicitHeight + (seg.small ? 12 : 14)
+                readonly property bool first: index === 0
+                readonly property bool last: index === options.count - 1
                 color: current ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08) : (ma.containsMouse ? Theme.sunken : "transparent")
-                radius: Theme.radiusMd - 1
+                topLeftRadius: first ? Theme.radiusMd - 1 : 0
+                bottomLeftRadius: first ? Theme.radiusMd - 1 : 0
+                topRightRadius: last ? Theme.radiusMd - 1 : 0
+                bottomRightRadius: last ? Theme.radiusMd - 1 : 0
                 border.width: current ? 1 : 0
                 border.color: Theme.accent
                 Rectangle {   // separator

@@ -12,7 +12,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(DRSTEIN_BUILD_TESTS "Build the core unit tests" ON)
-option(DRSTEIN_BUILD_APP   "Build the Qt application (needs Qt 6.5+)" ON)
+option(DRSTEIN_BUILD_APP   "Build the Qt application (needs Qt 6.7+)" ON)
 option(DRSTEIN_WERROR      "Treat warnings as errors" OFF)
 
 # ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ bar.
 ## Building
 
 Requirements: CMake ≥ 3.25, Ninja, a C++23 compiler (Apple clang 15+, GCC 13+,
-Clang 19+, MSVC 2022), Python ≥ 3.11 (libstein's layout generator), Qt 6.5+
+Clang 19+, MSVC 2022), Python ≥ 3.11 (libstein's layout generator), Qt 6.7+
 with the Quick, QuickControls2, QuickDialogs2 and Svg modules. Clang 18 on
 Linux (Ubuntu 24.04's default) builds too, with libstein's bundled
 `tl::expected` in place of the `std::expected` its libstdc++ hides, and a

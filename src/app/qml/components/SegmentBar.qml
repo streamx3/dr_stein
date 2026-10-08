@@ -52,7 +52,11 @@ Item {
                 readonly property real natural: bar.spare * Number(modelData.length) / bar.total
                 width: Math.max(bar.minW, natural)
                 height: bar.height
-                radius: index === 0 || index === bar.segments.length - 1 ? Theme.radiusSm : 1
+                // Rounded at the bar's two ends only; the joints between segments are square.
+                topLeftRadius: index === 0 ? Theme.radiusSm : 0
+                bottomLeftRadius: index === 0 ? Theme.radiusSm : 0
+                topRightRadius: index === bar.segments.length - 1 ? Theme.radiusSm : 0
+                bottomRightRadius: index === bar.segments.length - 1 ? Theme.radiusSm : 0
                 color: isFree ? Theme.sunken : Theme.partitionColor(modelData.colorIndex)
                 border.width: current ? 1 : 0
                 border.color: Theme.accent

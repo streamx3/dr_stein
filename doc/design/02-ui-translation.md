@@ -121,6 +121,12 @@ Settings, applies at the next launch; `DRSTEIN_CHROME=native` for one run):
   36 px tall and top-aligned, so their centres sat 6 px above the rest of the
   row. Brought up on Linux 2026-10-08 (`05-linux-bringup.md`).
 
+**Linked controls.** Segmented controls (`StSegmented`: Hex structure tabs, Image's
+Create / Restore / Verify / Keys, format and compression pickers) and the disk
+bar (`SegmentBar`) are rounded at their two ends and square where options join,
+the GTK "linked" look, through Rectangle's per-corner radii; that is why the app
+needs Qt 6.7 (2026-10-09). The current option's ring follows the same corners.
+
 **Layout rule learned.** Qt Quick Layouts never shrink below the children's
 minimum, and an item without `Layout.fillWidth` has minimum = implicit width.
 A long path in a text field or a long checkbox sublabel therefore pushed a
