@@ -75,7 +75,7 @@ Item {
                     }
                 }
             }
-            StTag { text: "read-only"; variant: "outline" }
+            StTag { text: "read-only"; variant: "outline"; boxed: true }   // same shape and height as the breadcrumb box and the buttons
             StCombo {
                 visible: view.browser.subvolumes.length > 0
                 small: true

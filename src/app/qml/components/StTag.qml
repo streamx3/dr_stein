@@ -8,6 +8,9 @@ Rectangle {
     property string variant: "neutral"   // neutral | accent | outline | ok | warning | danger
     property bool dot: false
     property color dotColor: Theme.accent
+    // boxed: the shape and height of a small button or the Browse breadcrumb box (26 px,
+    // Theme.radiusMd) instead of the 20 px pill, for tags that sit in a row of those.
+    property bool boxed: false
 
     readonly property color fill: variant === "accent" ? Theme.accentStep(800)
                                 : variant === "neutral" ? Theme.neutralStep(800)
@@ -22,9 +25,9 @@ Rectangle {
                               : variant === "danger" ? Theme.danger
                               : Theme.textSoft
 
-    implicitHeight: 20
-    implicitWidth: row.implicitWidth + 16
-    radius: 10
+    implicitHeight: boxed ? 26 : 20
+    implicitWidth: row.implicitWidth + (boxed ? 20 : 16)
+    radius: boxed ? Theme.radiusMd : 10
     color: fill
     border.width: variant === "outline" ? 1 : 0
     border.color: Theme.edge2
@@ -42,7 +45,7 @@ Rectangle {
         Text {
             text: tag.text
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontTiny
+            font.pixelSize: tag.boxed ? Theme.fontSmall : Theme.fontTiny
             font.weight: Font.Medium
             color: tag.fg
             anchors.verticalCenter: parent.verticalCenter
