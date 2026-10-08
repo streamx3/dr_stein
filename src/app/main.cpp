@@ -7,6 +7,7 @@
 //   DRSTEIN_VIEW=topology|hex|browse|image|profiles|tools|partitions   start on that view
 //   DRSTEIN_SCREENSHOT=<file.png>    grab the window after DRSTEIN_DELAY ms (default 2500), save it, quit
 //   DRSTEIN_SCRIPT=<javascript>      evaluated in Main.qml's scope 1 s after start (smoke runs)
+#include "codicon_provider.hpp"
 #include "device_watcher.hpp"
 #include "file_browser.hpp"
 #include "workspace.hpp"
@@ -34,6 +35,7 @@ int main(int argc, char* argv[]) {
     QQuickStyle::setStyle("Basic");
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider("codicon", new drstein::ui::CodiconProvider);   // Linux caption buttons
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("DrStein", "Main");
     if (engine.rootObjects().isEmpty()) return 1;

@@ -72,12 +72,18 @@ set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 set(DRSTEIN_PLATFORM_SOURCES
   platform/window_chrome.hpp platform/window_chrome.cpp
-  platform/device_watcher.hpp platform/device_watcher.cpp)
+  platform/device_watcher.hpp platform/device_watcher.cpp
+  platform/codicon_provider.hpp platform/codicon_provider.cpp)
 if(APPLE)
   list(APPEND DRSTEIN_PLATFORM_SOURCES platform/window_chrome_mac.mm)
 endif()
 
 qt_add_executable(dr_stein MACOSX_BUNDLE main.cpp ${DRSTEIN_QT_SOURCES} ${DRSTEIN_PLATFORM_SOURCES})
+
+# VS Code's caption-button glyphs for Linux (icons/codicons/README.md), served by CodiconProvider.
+qt_add_resources(dr_stein codicons PREFIX "/codicons" BASE icons/codicons FILES
+  icons/codicons/chrome-minimize.svg icons/codicons/chrome-maximize.svg
+  icons/codicons/chrome-restore.svg icons/codicons/chrome-close.svg)
 
 qt_add_qml_module(dr_stein
   URI DrStein

@@ -112,9 +112,14 @@ Settings, applies at the next launch; `DRSTEIN_CHROME=native` for one run):
   maximise chip is a known gap with this approach (it needs `WM_NCHITTEST`
   returning `HTMAXBUTTON`); the double-click-to-maximise and drag work through
   `startSystemMove`. Not yet run on Windows.
-- Linux: `Qt.FramelessWindowHint`, our buttons, `startSystemMove` for the bar
-  and `startSystemResize` from 6 px edge bands (`FrameResizer`); no
-  compositor shadow. Not yet run on Linux.
+- Linux: `Qt.FramelessWindowHint`, `startSystemMove` for the bar and
+  `startSystemResize` from 6 px edge bands (`FrameResizer`); no compositor
+  shadow. The caption buttons are VS Code's: 46 px wide, the full 48 px of the
+  bar, Microsoft's Codicon glyphs at 16 px (`src/app/icons/codicons/`, CC-BY
+  4.0, recoloured by `CodiconProvider`), a 10 % hover overlay, close turns
+  `#e81123` with a white glyph. Before this the chips were the Windows ones,
+  36 px tall and top-aligned, so their centres sat 6 px above the rest of the
+  row. Brought up on Linux 2026-10-08 (`05-linux-bringup.md`).
 
 **Layout rule learned.** Qt Quick Layouts never shrink below the children's
 minimum, and an item without `Layout.fillWidth` has minimum = implicit width.

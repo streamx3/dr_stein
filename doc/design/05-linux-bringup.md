@@ -79,6 +79,26 @@ covers the image and the write stays inside the damaged 2 MiB.
   grips, and the chips' hover states. Also a Wayland session once Mint ships one.
 - Drag-out from Browse into Nemo.
 
+## Qt Creator
+
+Qt Creator 20.0.2 from the online installer, same day. Two things kept the
+"Desktop Qt 6.11.2" kit from working out of the box:
+
+- The kit's compiler was Clang 18 (the ccache wrapper). The compiler entries on
+  this machine were detected by Qt Creator 13 in 2025, before Creator 15 started
+  ranking Clang below GCC on Linux; stored priorities are kept, so the tie went
+  to the newer version number. Clang 18 on libstdc++ 13 has no `std::expected`
+  (`__cpp_concepts` 201907 < 202002), and libstein's `Expected<T>` is exactly
+  that: 121 errors in the core. Re-detecting the compilers in Preferences > Kits
+  fixes future kits; the existing one needs GCC 13 chosen by hand. libstein now
+  falls back to the bundled `tl::expected` on such toolchains and warns.
+- `CMakePresets.json` makes the Configure Project page show only the
+  preset-derived kits, and those resolve `$env{QT_ROOT}` against Qt Creator's
+  own environment. Launched from the menu, that is unset, the system Qt 6.4.2
+  is found instead and `find_package(Qt6 6.5)` fails. Setting `QT_ROOT` under
+  Preferences > Environment > System, then Build > Reload CMake Presets, makes
+  the preset kits usable; they pick `/usr/bin/c++` (GCC 13) and Ninja.
+
 ## GCC warnings
 
 A clean Debug build of the whole tree (libstein, core, Qt layer, app) in

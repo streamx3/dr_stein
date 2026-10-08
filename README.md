@@ -7,7 +7,7 @@ Linux, macOS and Windows; every byte-level decision is the library's.
 ![Topology view](doc/design/screenshots/topology.png)
 
 The title bar is drawn by the app on every platform (traffic lights on macOS,
-caption chips on Windows and Linux); four palettes (teal, blurple, Apple blue,
+caption chips on Windows, VS Code's caption buttons on Linux); four palettes (teal, blurple, Apple blue,
 grey), dark and light.
 
 Seven views, translated from the Claude Design prototype in
@@ -34,8 +34,11 @@ bar.
 ## Building
 
 Requirements: CMake ≥ 3.25, Ninja, a C++23 compiler (Apple clang 15+, GCC 13+,
-MSVC 2022), Python ≥ 3.11 (libstein's layout generator), Qt 6.5+ with the
-Quick, QuickControls2, QuickDialogs2 and Svg modules.
+Clang 19+, MSVC 2022), Python ≥ 3.11 (libstein's layout generator), Qt 6.5+
+with the Quick, QuickControls2, QuickDialogs2 and Svg modules. Clang 18 on
+Linux (Ubuntu 24.04's default) builds too, with libstein's bundled
+`tl::expected` in place of the `std::expected` its libstdc++ hides, and a
+configure-time warning asking for Clang 19.
 
 Linux additionally needs `pkg-config` and `libfuse3-dev` for libstein's FUSE
 mount backend; without them the build still succeeds but mounting from the app
@@ -58,6 +61,15 @@ ctest --preset debug                     # the core's unit tests
 The app bundle lands in `build/debug/src/app/` (`Dr Stein.app` on macOS,
 `Dr Stein` elsewhere). `cmake --preset core` builds and tests the Qt-free core
 alone.
+
+In Qt Creator the presets file does two things worth knowing. The Configure
+Project page lists only the kits made from the presets (`debug`, `release`,
+`core`, `ci`) and hides the regular ones; they can still be enabled later in
+Projects mode. And the preset kits take Qt from `QT_ROOT`, which Qt Creator
+reads from its own environment: set it under Preferences > Environment >
+System (for example `QT_ROOT=$HOME/Qt/6.11.2/gcc_64`), then Build > Reload
+CMake Presets. A kit's compiler must be one from the list above; Qt Creator
+may pick Clang 18 on its own, which only builds through the fallback.
 
 To work on a real disk, launch elevated:
 
@@ -108,4 +120,5 @@ yet: a privileged helper (the library's plan) and SMART. Linux builds and
 runs on Mint 22.1 / GCC 13 / Qt 6.11 (see `doc/design/05-linux-bringup.md`);
 the Windows build follows libstein's CI but has not been run by hand.
 
-License: MIT.
+License: MIT. The Linux caption-button glyphs are Microsoft's
+[Codicons](src/app/icons/codicons/README.md), CC-BY 4.0.

@@ -88,7 +88,14 @@ Item {
         IconButton { icon_: "mount"; tip: MountsModel.count + " mount(s) made by Dr Stein"; visible: MountsModel.count > 0; onClicked: bar.openMounts() }
         IconButton { icon_: Theme.dark ? "sun" : "moon"; tip: Theme.dark ? "Switch to light" : "Switch to dark"; onClicked: Settings.colorScheme = Theme.dark ? "light" : "dark" }
         IconButton { icon_: "gear"; tip: "Settings"; onClicked: bar.openSettings() }
-        WindowControls { visible: bar.ownButtons; window: bar.window; Layout.leftMargin: Theme.space3; Layout.alignment: Qt.AlignTop }
+        // Linux: the buttons span the bar like VS Code's; Windows: chips at the top like the system's.
+        WindowControls {
+            visible: bar.ownButtons
+            window: bar.window
+            barHeight: bar.height
+            Layout.leftMargin: Theme.space3
+            Layout.alignment: vscode ? Qt.AlignVCenter : Qt.AlignTop
+        }
     }
     FadeDivider { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
 }
