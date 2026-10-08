@@ -44,7 +44,7 @@ inline QVariantMap errorToVariant(const stein::Error& e) {
     m["needsElevation"] = p.needsElevation;
     m["busy"] = p.busy;
     m["integrity"] = p.integrity;
-    m["osCode"] = e.osCode();
+    m["osCode"] = static_cast<qlonglong>(e.osCode());   // int64_t is long on Linux, which QVariant lacks
     m["fullDiskAccess"] = false;
     return m;
 }

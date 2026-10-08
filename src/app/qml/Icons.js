@@ -1,7 +1,8 @@
+.pragma library
 // SPDX-License-Identifier: MIT
 // Stroke icons on a 24-unit grid, in the mockup's style (1.6 stroke, round
 // caps). The mockup's own paths come first; the rest follow Phosphor's shapes.
-.pragma library
+// (.pragma library sits on line 1: Qt's CMake only looks there for it.)
 
 var paths = {
     nvme: "M4 7h16v10H4z M8 11h.01 M4 12h16",

@@ -39,8 +39,8 @@ ApplicationWindow {
         onAccepted: Workspace.openImage(selectedFile)
     }
 
-    Shortcut { sequence: StandardKey.Open; onActivated: openImageDialog.open() }
-    Shortcut { sequence: StandardKey.Refresh; onActivated: Workspace.refresh() }
+    Shortcut { sequences: [StandardKey.Open]; onActivated: openImageDialog.open() }
+    Shortcut { sequences: [StandardKey.Refresh]; onActivated: Workspace.refresh() }
     Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.open() }
     Repeater {
         model: 7
