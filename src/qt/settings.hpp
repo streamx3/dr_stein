@@ -23,6 +23,7 @@ class Settings : public QObject {
     Q_PROPERTY(QString profilesDir READ profilesDir WRITE setProfilesDir NOTIFY profilesDirChanged)
     Q_PROPERTY(QStringList recentImages READ recentImages NOTIFY recentImagesChanged)
     Q_PROPERTY(int sidebarWidth READ sidebarWidth WRITE setSidebarWidth NOTIFY sidebarWidthChanged)
+    Q_PROPERTY(bool sidebarVisible READ sidebarVisible WRITE setSidebarVisible NOTIFY sidebarVisibleChanged)
     Q_PROPERTY(QString lastImageDir READ lastImageDir WRITE setLastImageDir NOTIFY lastImageDirChanged)
 
 public:
@@ -48,6 +49,8 @@ public:
     Q_INVOKABLE void forgetRecentImage(const QString& path);
     int sidebarWidth() const;
     void setSidebarWidth(int w);
+    bool sidebarVisible() const;
+    void setSidebarVisible(bool on);
     QString lastImageDir() const;
     void setLastImageDir(const QString& dir);
 
@@ -61,6 +64,7 @@ Q_SIGNALS:
     void profilesDirChanged();
     void recentImagesChanged();
     void sidebarWidthChanged();
+    void sidebarVisibleChanged();
     void lastImageDirChanged();
 
 private:

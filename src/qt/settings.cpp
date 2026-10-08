@@ -103,6 +103,12 @@ void Settings::forgetRecentImage(const QString& path) {
 }
 
 int Settings::sidebarWidth() const { return m_settings.value("ui/sidebarWidth", 264).toInt(); }
+bool Settings::sidebarVisible() const { return m_settings.value("ui/sidebarVisible", true).toBool(); }
+void Settings::setSidebarVisible(bool on) {
+    if (on == sidebarVisible()) return;
+    m_settings.setValue("ui/sidebarVisible", on);
+    Q_EMIT sidebarVisibleChanged();
+}
 void Settings::setSidebarWidth(int w) {
     if (w == sidebarWidth()) return;
     m_settings.setValue("ui/sidebarWidth", w);

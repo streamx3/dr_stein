@@ -40,9 +40,17 @@ Item {
         spacing: Theme.space4
 
         Row {
-            Layout.minimumWidth: Math.max(0, Settings.sidebarWidth - Theme.space6 - Theme.space4 - bar.leftInset)
+            // Lines the tabs up with the content column; nothing to line up with when the sidebar is hidden.
+            Layout.minimumWidth: Settings.sidebarVisible ? Math.max(0, Settings.sidebarWidth - Theme.space6 - Theme.space4 - bar.leftInset) : 0
             spacing: 8
-            Icon { name: "disk"; size: 18; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
+            IconButton {
+                icon_: "menu"
+                iconSize: 18
+                iconColor: hovered ? Theme.accentStep(300) : Theme.accent
+                tip: Settings.sidebarVisible ? "Hide the sidebar" : "Show the sidebar"
+                anchors.verticalCenter: parent.verticalCenter
+                onClicked: Settings.sidebarVisible = !Settings.sidebarVisible
+            }
             Text {
                 text: "Dr Stein"
                 font.family: Theme.fontFamily

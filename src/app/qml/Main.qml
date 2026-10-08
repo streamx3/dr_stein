@@ -82,6 +82,7 @@ ApplicationWindow {
             onResizingChanged: if (!resizing && sidebar.width >= 200) Settings.sidebarWidth = Math.round(sidebar.width)
             Sidebar {
                 id: sidebar
+                visible: Settings.sidebarVisible   // the menu button in the top bar toggles it
                 SplitView.preferredWidth: Math.max(220, Settings.sidebarWidth)
                 SplitView.minimumWidth: 200
                 SplitView.maximumWidth: 420
