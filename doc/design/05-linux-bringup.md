@@ -11,12 +11,14 @@ before this day had been compiled and run on macOS only; the Linux paths
 |---|---|
 | OS | Linux Mint 22.1 (Ubuntu 24.04 base), kernel 6.8, x86_64 |
 | Desktop | Cinnamon on X11 (Mint has no Wayland session worth testing yet) |
-| Toolchain | GCC 13.3, CMake 3.28, GNU make (no Ninja installed) |
+| Toolchain | GCC 13.3, CMake 3.28, Ninja (installed later the same day; the first pass used GNU make) |
 | Qt | 6.11.2, online installer, `~/Qt/6.11.2/gcc_64` |
 | Repo | `~/git/dr_stein` with the libstein submodule; fetch over HTTPS, push over SSH |
 | Locale | `LANG=en_US`, `LC_NUMERIC=uk_UA`: sizes show a decimal comma, by design |
 
-Build without presets (they ask for Ninja):
+With `ninja-build` and `libfuse3-dev` installed the presets work as on macOS
+(`QT_ROOT=$HOME/Qt/6.11.2/gcc_64 cmake --preset debug`). The first pass ran
+without them:
 
 ```bash
 cmake -S libstein -B build/libstein-tests -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DSTEIN_BUILD_TESTS=ON
@@ -86,5 +88,5 @@ A clean Debug build of the whole tree (libstein, core, Qt layer, app) in
 
 - Whether to give the test user a `NOPASSWD` sudo rule limited to the test
   binaries so the raw-device tests can run unattended. Andrii's call.
-- Whether to add Ninja and `libfuse3-dev` (FUSE mount backend is OFF without
-  it, so Browse's "Mount instead" is unavailable on this machine).
+- (Resolved the same evening: `ninja-build` and `libfuse3-dev` installed, so
+  the FUSE mount backend is available once reconfigured.)

@@ -37,6 +37,15 @@ Requirements: CMake ≥ 3.25, Ninja, a C++23 compiler (Apple clang 15+, GCC 13+,
 MSVC 2022), Python ≥ 3.11 (libstein's layout generator), Qt 6.5+ with the
 Quick, QuickControls2, QuickDialogs2 and Svg modules.
 
+Linux additionally needs `pkg-config` and `libfuse3-dev` for libstein's FUSE
+mount backend; without them the build still succeeds but mounting from the app
+("Mount instead" in Browse, Mount in Topology) is unavailable. On Debian and
+Ubuntu derivatives:
+
+```sh
+sudo apt install build-essential cmake ninja-build pkg-config python3 libfuse3-dev
+```
+
 ```sh
 git clone --recurse-submodules https://github.com/streamx3/dr_stein
 cd dr_stein
@@ -95,8 +104,8 @@ Every view is wired to the library and exercised against image files:
 imaging (create, verify, restore byte-identical), partition editing with
 apply, hex edits with checksum repair, browsing with preview, hash and copy
 out, NFS loopback mounts on macOS, surface scans, profile backups. Not done
-yet: drag-out of files to the desktop, a privileged helper (the library's
-plan), hot-plug refresh, SMART. Linux and Windows builds follow libstein's CI
-but have not been run by hand.
+yet: a privileged helper (the library's plan) and SMART. Linux builds and
+runs on Mint 22.1 / GCC 13 / Qt 6.11 (see `doc/design/05-linux-bringup.md`);
+the Windows build follows libstein's CI but has not been run by hand.
 
 License: MIT.
