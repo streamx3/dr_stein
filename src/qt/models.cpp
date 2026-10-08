@@ -209,13 +209,14 @@ void NodeDetailsObject::set(const core::NodeDetails& d, bool valid) {
         m["mono"] = r.mono;
         m_rows.push_back(m);
     }
-    m_notes.clear();
-    for (const auto& n : d.notes) {
+    m_issues.clear();
+    for (const auto& i : d.issues) {
         QVariantMap m;
-        m["severity"] = healthName(n.severity);
-        m["code"] = qs(n.code);
-        m["message"] = qs(n.message);
-        m_notes.push_back(m);
+        m["severity"] = healthName(i.severity);
+        m["code"] = qs(i.code);
+        m["message"] = qs(i.message);
+        m["repairable"] = i.repairable;
+        m_issues.push_back(m);
     }
     m_subvolumes.clear();
     for (const auto& s : d.subvolumes) {

@@ -239,24 +239,36 @@ Item {
                         id: detailsCol
                         width: parent.width
                         spacing: Theme.space3
-                        KeyValueGrid { Layout.fillWidth: true; rows: Workspace.details.rows }
+                        // Issues first, each once, coloured by severity; errors in red with a border.
                         Repeater {
-                            model: Workspace.details.notes
+                            model: Workspace.details.issues
                             delegate: Rectangle {
-                                id: noteItem
+                                id: issueItem
                                 required property var modelData
+                                readonly property bool bad: modelData.severity === "error"
+                                readonly property color tone: Theme.healthColor(modelData.severity)
                                 Layout.fillWidth: true
-                                implicitHeight: noteRow.implicitHeight + 16
+                                implicitHeight: issueCol.implicitHeight + 14
                                 radius: Theme.radiusSm
-                                color: Theme.sunken
-                                RowLayout {
-                                    id: noteRow
-                                    anchors.fill: parent; anchors.margins: 8; spacing: 8
-                                    Text { text: noteItem.modelData.code; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.healthColor(noteItem.modelData.severity); Layout.alignment: Qt.AlignTop }
-                                    Text { Layout.fillWidth: true; text: noteItem.modelData.message; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; wrapMode: Text.WordWrap }
+                                color: bad ? Qt.alpha(Theme.danger, 0.14) : modelData.severity === "warning" ? Qt.alpha(Theme.warning, 0.10) : Theme.sunken
+                                border.width: bad ? 1 : 0
+                                border.color: Theme.danger
+                                Rectangle { width: 3; radius: 2; color: issueItem.tone; anchors { left: parent.left; top: parent.top; bottom: parent.bottom; leftMargin: 4; topMargin: 5; bottomMargin: 5 } }
+                                ColumnLayout {
+                                    id: issueCol
+                                    anchors { fill: parent; leftMargin: 14; rightMargin: 8; topMargin: 7; bottomMargin: 7 }
+                                    spacing: 2
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+                                        Text { text: issueItem.modelData.severity.toUpperCase(); font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; font.weight: Font.DemiBold; font.letterSpacing: 0.6; color: issueItem.tone }
+                                        Text { Layout.fillWidth: true; text: issueItem.modelData.code + (issueItem.modelData.repairable ? " · repairable" : ""); font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight }
+                                    }
+                                    Text { Layout.fillWidth: true; text: issueItem.modelData.message; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: issueItem.bad ? Theme.danger : Theme.text; wrapMode: Text.WordWrap }
                                 }
                             }
                         }
+                        KeyValueGrid { Layout.fillWidth: true; rows: Workspace.details.rows }
                         Repeater {
                             model: Workspace.details.subvolumes
                             delegate: Text {

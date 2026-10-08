@@ -94,7 +94,7 @@ class NodeDetailsObject : public QObject {
     Q_PROPERTY(QString title READ title NOTIFY changed)
     Q_PROPERTY(QString regionText READ regionText NOTIFY changed)
     Q_PROPERTY(QVariantList rows READ rows NOTIFY changed)
-    Q_PROPERTY(QVariantList notes READ notes NOTIFY changed)
+    Q_PROPERTY(QVariantList issues READ issues NOTIFY changed)
     Q_PROPERTY(QVariantList subvolumes READ subvolumes NOTIFY changed)
     Q_PROPERTY(bool hasUsed READ hasUsed NOTIFY changed)
     Q_PROPERTY(double usedFraction READ usedFraction NOTIFY changed)
@@ -120,7 +120,7 @@ public:
     QString title() const { return m_title; }
     QString regionText() const { return m_regionText; }
     QVariantList rows() const { return m_rows; }
-    QVariantList notes() const { return m_notes; }
+    QVariantList issues() const { return m_issues; }
     QVariantList subvolumes() const { return m_subvolumes; }
     bool hasUsed() const { return m_usedFraction >= 0; }
     double usedFraction() const { return m_usedFraction; }
@@ -138,7 +138,7 @@ Q_SIGNALS:
 
 private:
     QString m_kindLabel, m_title, m_regionText, m_usedLabel, m_usedText, m_osDevice, m_mountpoint;
-    QVariantList m_rows, m_notes, m_subvolumes;
+    QVariantList m_rows, m_issues, m_subvolumes;
     double m_usedFraction = -1;
     bool m_canBrowse = false, m_canInspect = false, m_canRepair = false, m_canMount = false, m_locked = false, m_valid = false;
 };

@@ -55,10 +55,19 @@ struct DetailRow {
     std::string key, value;
     bool mono = true;
 };
+// One diagnostic of a node, reported once: table and filesystem diagnostics and the
+// probe's own notes, de-duplicated, errors first.
+struct Issue {
+    stein::layout::Validity severity = stein::layout::Validity::Info;
+    std::string code, message;
+    bool repairable = false;       // the table's repair() can fix it
+};
+std::vector<Issue> issuesOf(const stein::probe::Node& node, bool tableOnly = false);
+
 struct NodeDetails {
     std::string kindLabel, title, regionText;
     std::vector<DetailRow> rows;
-    std::vector<stein::probe::Note> notes;
+    std::vector<Issue> issues;                    // the only place diagnostics appear; rows hold facts
     std::optional<double> usedFraction;
     std::string usedLabel, usedText;              // "ext4 used", "243.9 GB of 399.9 GB"
     std::vector<stein::fs::SubvolumeInfo> subvolumes;

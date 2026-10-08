@@ -140,8 +140,6 @@ void appendContentRows(std::vector<DetailRow>& rows, const Node& node) {
             if (!li.supported) rows.push_back({"note", "cannot open in-process: " + li.unsupportedWhy, false});
         }
     }
-    for (const auto& d : f.diagnostics())
-        if (d.severity >= Validity::Info) rows.push_back({validityText(d.severity), d.message + " (" + d.code + ")", false});
 }
 
 void appendTableRows(std::vector<DetailRow>& rows, const Node& node) {
@@ -165,11 +163,31 @@ void appendTableRows(std::vector<DetailRow>& rows, const Node& node) {
         rows.push_back({"first usable", lbaText(t.firstUsableLba())});
         rows.push_back({"last usable", lbaText(t.lastUsableLba())});
     }
-    for (const auto& d : t.diagnostics())
-        if (d.severity >= Validity::Info) rows.push_back({validityText(d.severity), d.message + (d.repairable ? " · repairable" : "") + " (" + d.code + ")", false});
 }
 
 } // namespace
+
+std::vector<Issue> issuesOf(const Node& node, bool tableOnly) {
+    std::vector<Issue> out;
+    auto add = [&](Validity severity, const std::string& code, const std::string& message, bool repairable) {
+        if (severity < Validity::Info) return;
+        for (auto& i : out)
+            if (i.code == code && i.message == message) {
+                i.repairable = i.repairable || repairable;
+                return;
+            }
+        out.push_back(Issue{severity, code, message, repairable});
+    };
+    if (node.table)
+        for (const auto& d : node.table->diagnostics()) add(d.severity, d.code, d.message, d.repairable);
+    if (!tableOnly) {
+        if (node.content)
+            for (const auto& d : node.content->diagnostics()) add(d.severity, d.code, d.message, false);
+        for (const auto& n : node.notes) add(n.severity, n.code, n.message, false);   // the probe repeats the above and adds its own
+    }
+    std::stable_sort(out.begin(), out.end(), [](const Issue& a, const Issue& b) { return a.severity > b.severity; });
+    return out;
+}
 
 std::string schemeName(pt::TableType type) {
     switch (type) {
@@ -563,7 +581,7 @@ NodeDetails nodeDetails(const Node& root, const NodePath& path) {
             d.usedText = sizeText(*fsNode->content->info().usedBytes) + " of " + sizeText(*fsNode->content->info().totalBytes);
         }
     }
-    d.notes = node.notes;
+    d.issues = issuesOf(node);
     if (node.content) d.subvolumes = node.content->subvolumes();
     d.canBrowse = readable(node);
     d.canInspect = node.table || node.content;
@@ -596,6 +614,7 @@ NodeDetails metadataDetails(const Node& root, int metadataIndex) {
     d.rows.push_back({"bytes", hexRangeText(r)});
     d.rows.push_back({"size", sizeBinary(r.length)});
     appendTableRows(d.rows, root);
+    d.issues = issuesOf(root, true);
     d.canInspect = true;
     return d;
 }

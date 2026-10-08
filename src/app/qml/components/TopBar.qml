@@ -78,10 +78,21 @@ Item {
             }
         }
         Item { Layout.fillWidth: true }
-        StTag {
-            text: Workspace.elevated ? "Elevated · " + (Qt.platform.os === "windows" ? "Administrator" : "root") : "Not elevated · images only"
-            variant: Workspace.elevated ? "neutral" : "outline"
-            dot: Workspace.elevated
+        // Elevation: the same shape as Refresh, and a button when it can do something, which is
+        // relaunching through the OS prompt (pkexec, administrator authorisation, UAC).
+        StButton {
+            readonly property string who: Qt.platform.os === "windows" ? "Administrator" : "root"
+            text: Workspace.elevated ? "Elevated · " + who : "Not elevated · images only"
+            small: true
+            icon_: Workspace.elevated ? "unlock" : "lock"
+            variant: Workspace.elevated ? "primary" : "secondary"
+            enabled: Workspace.elevated || (Workspace.canRelaunchElevated() && !Workspace.uiLocked)
+            onClicked: if (!Workspace.elevated) Workspace.relaunchElevated()
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            ToolTip.text: Workspace.elevated ? "Running with " + who + " rights: disks can be opened and written"
+                        : Workspace.canRelaunchElevated() ? "Relaunch with " + who + " rights through the system prompt; open images are carried over"
+                        : "Elevation is unavailable here (no pkexec); start the app with sudo to work on disks"
         }
         // With hot-plug the list keeps itself current; the button stays as the manual re-read of the open disk.
         StButton { text: "Refresh"; small: true; icon_: "refresh"; enabled: !Workspace.uiLocked; onClicked: Workspace.refresh(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: Workspace.hotplug ? "Devices update on their own; this re-reads the open disk" : "Re-list devices and re-read the open disk" }
