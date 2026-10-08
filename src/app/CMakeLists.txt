@@ -71,11 +71,7 @@ set(DRSTEIN_PLATFORM_SOURCES
   platform/window_chrome.hpp platform/window_chrome.cpp
   platform/device_watcher.hpp platform/device_watcher.cpp)
 if(APPLE)
-  list(APPEND DRSTEIN_PLATFORM_SOURCES platform/window_chrome_mac.mm platform/device_watcher_mac.mm)
-elseif(WIN32)
-  list(APPEND DRSTEIN_PLATFORM_SOURCES platform/device_watcher_win.cpp)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  list(APPEND DRSTEIN_PLATFORM_SOURCES platform/device_watcher_linux.cpp)
+  list(APPEND DRSTEIN_PLATFORM_SOURCES platform/window_chrome_mac.mm)
 endif()
 
 qt_add_executable(dr_stein MACOSX_BUNDLE main.cpp ${DRSTEIN_QT_SOURCES} ${DRSTEIN_PLATFORM_SOURCES})
@@ -88,7 +84,7 @@ qt_add_qml_module(dr_stein
 
 target_include_directories(dr_stein PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../qt ${CMAKE_CURRENT_SOURCE_DIR}/platform)
 if(APPLE)
-  target_link_libraries(dr_stein PRIVATE "-framework AppKit" "-framework DiskArbitration")
+  target_link_libraries(dr_stein PRIVATE "-framework AppKit")
 endif()
 # libstein has a slots() method; Qt's keyword macros would eat it.
 target_compile_definitions(dr_stein PRIVATE QT_NO_KEYWORDS)

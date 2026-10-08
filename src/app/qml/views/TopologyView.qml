@@ -84,7 +84,7 @@ Item {
                 spacing: 0
                 ColumnHeader {
                     Layout.fillWidth: true
-                    columns: [{ label: "Node" }, { label: "Content", width: 170 }, { label: "Size", width: 90, align: "right" }, { label: "Health", width: 96 }]
+                    columns: [{ label: "Node" }, { label: "Content", width: 210 }, { label: "Size", width: 90, align: "right" }, { label: "Health", width: 48, align: "right" }]
                 }
                 ListView {
                     id: tree
@@ -107,37 +107,53 @@ Item {
                             anchors.leftMargin: 10
                             anchors.rightMargin: 10
                             spacing: 12
-                            RowLayout {
+                            // Name cell: swatch, name, OS device id, a small mount mark. It clips and elides;
+                            // it never pushes the fixed columns.
+                            Item {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
+                                Layout.fillHeight: true
                                 Layout.leftMargin: row.model.depth * 18
-                                spacing: 8
-                                Rectangle {
-                                    width: 8; height: 8; radius: 2
-                                    color: row.model.isMetadata ? Theme.neutralStep(600)
-                                         : row.model.kindLabel === "Free" ? Theme.sunken
-                                         : row.model.segment >= 0 ? Theme.partitionColor(Workspace.segments[row.model.segment] !== undefined ? Workspace.segments[row.model.segment].colorIndex : row.model.segment)
-                                         : Theme.textMuted
-                                    border.width: row.model.kindLabel === "Free" ? 1 : 0
-                                    border.color: Theme.neutralStep(700)
+                                clip: true
+                                RowLayout {
+                                    anchors.fill: parent
+                                    spacing: 8
+                                    Rectangle {
+                                        width: 8; height: 8; radius: 2
+                                        color: row.model.isMetadata ? Theme.neutralStep(600)
+                                             : row.model.kindLabel === "Free" ? Theme.sunken
+                                             : row.model.segment >= 0 ? Theme.partitionColor(Workspace.segments[row.model.segment] !== undefined ? Workspace.segments[row.model.segment].colorIndex : row.model.segment)
+                                             : Theme.textMuted
+                                        border.width: row.model.kindLabel === "Free" ? 1 : 0
+                                        border.color: Theme.neutralStep(700)
+                                    }
+                                    Text {
+                                        Layout.minimumWidth: 0
+                                        Layout.maximumWidth: 320
+                                        text: row.model.depth === 0 ? Workspace.title : row.model.name
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.fontSize
+                                        color: Theme.text
+                                        elide: Text.ElideRight
+                                    }
+                                    Text { visible: row.model.osDevice.length > 0; text: row.model.osDevice; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(400) }
+                                    Icon { visible: row.model.mountpoint.length > 0; name: "eject"; size: 11; color: Theme.textMuted; ToolTip.visible: mountHover.hovered; ToolTip.text: "mounted at " + row.model.mountpoint; ToolTip.delay: 400; HoverHandler { id: mountHover } }
+                                    Icon { visible: row.model.isLocked; name: "lock"; size: 11; color: Theme.warning }
+                                    Item { Layout.fillWidth: true }
                                 }
-                                Text {
-                                    text: row.model.depth === 0 ? Workspace.title : row.model.name
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSize
-                                    color: Theme.text
-                                    elide: Text.ElideRight
-                                    Layout.maximumWidth: 260
-                                }
-                                Text { text: row.model.kindLabel; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
-                                Text { visible: row.model.osDevice.length > 0; text: row.model.osDevice; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(400) }
-                                StTag { visible: row.model.mountpoint.length > 0; text: "mounted"; variant: "outline" }
-                                Icon { visible: row.model.isLocked; name: "lock"; size: 11; color: Theme.warning }
-                                Item { Layout.fillWidth: true }
                             }
-                            Text { Layout.preferredWidth: 170; Layout.minimumWidth: 170; Layout.maximumWidth: 170; text: row.model.content; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
+                            Text { Layout.preferredWidth: 210; Layout.minimumWidth: 210; Layout.maximumWidth: 210; text: row.model.content; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft; elide: Text.ElideRight }
                             Text { Layout.preferredWidth: 90; Layout.minimumWidth: 90; Layout.maximumWidth: 90; elide: Text.ElideRight; text: row.model.sizeText; horizontalAlignment: Text.AlignRight; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.neutralStep(300) }
-                            HealthDot { Layout.preferredWidth: 96; Layout.minimumWidth: 96; Layout.maximumWidth: 96; clip: true; level: row.model.health; text: row.model.healthText }
+                            Text {
+                                Layout.preferredWidth: 48; Layout.minimumWidth: 48; Layout.maximumWidth: 48
+                                horizontalAlignment: Text.AlignRight
+                                visible: row.model.healthText.length > 0
+                                text: row.model.health === "error" ? "FAIL" : row.model.health === "warning" ? "WARN" : "OK"
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSmall
+                                font.weight: row.model.health === "ok" || row.model.health === "info" ? Font.Normal : Font.Bold
+                                color: row.model.health === "error" ? Theme.danger : row.model.health === "warning" ? Theme.warning : Theme.textMuted
+                            }
                         }
                         MouseArea {
                             id: rowMouse

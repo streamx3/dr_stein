@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: MIT
-// Tells the workspace when the OS's view of block devices changes: a disk
-// appears or disappears, a volume mounts or unmounts. One debounced signal;
-// the workspace re-enumerates. Per platform:
-//   macOS   DiskArbitration (appeared / disappeared / description changed)
-//   Linux   inotify on /dev (device nodes) and poll() on /proc/self/mounts
-//   Windows WM_DEVICECHANGE through a native event filter
-// This belongs in libstein's platform layer eventually (it is OS code, not UI);
-// it lives here until that session.
+// Qt side of libstein's platform::DeviceWatcher: the library's callback arrives
+// on its own thread; this marshals it to the GUI thread and debounces, so the
+// workspace re-lists once per plug or mount, not once per OS message.
 #pragma once
+
+#include "stein/platform/device_watcher.hpp"
 
 #include <QObject>
 #include <QTimer>
-#include <QElapsedTimer>
+
+#include <memory>
 
 namespace drstein::ui {
 
@@ -20,21 +18,16 @@ class DeviceWatcher : public QObject {
 public:
     explicit DeviceWatcher(QObject* parent = nullptr);
     ~DeviceWatcher() override;
-    bool available() const { return m_available; }
-    // Platform hooks call this; the signal fires once, 400 ms after the last event.
-    void notify(const QString& what);
+    bool available() const { return m_watcher != nullptr; }
 
 Q_SIGNALS:
     void devicesChanged(QString lastEvent);
 
 private:
-    void start();
-    void stop();
+    void onEvent(const QString& what);   // GUI thread
+    std::unique_ptr<stein::platform::DeviceWatcher> m_watcher;
     QTimer m_debounce;
     QString m_last;
-    qint64 m_startedAt = 0;      // DiskArbitration replays every disk at registration; that burst is not a change
-    bool m_available = false;
-    void* m_native = nullptr;   // platform session / handles
 };
 
 } // namespace drstein::ui

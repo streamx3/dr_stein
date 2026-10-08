@@ -107,6 +107,14 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
 - [x] I1 Browse: size / modified / mode columns drift with their text; make them
       fixed-width columns (also Topology and Partitions rows, same cause).
 
+## L. Round 3 (2026-10-08)
+- [x] L1 Device watcher moved into libstein's platform layer; verified on macOS.
+- [x] L2 Topology table: "Device" / "Partition N" labels dropped from rows (the
+      details card still names them), a small eject mark with a tooltip instead of a
+      "mounted" tag, the name cell clips and elides, Health is a word: OK muted,
+      WARN / FAIL bold in colour.
+- [x] L3 USB icon redrawn symmetric (the mockup's own path was the crooked one).
+
 ## Notes
 
 ### Status 2026-10-08 (end of day)
@@ -132,8 +140,9 @@ makes the workspace re-list sources and re-read the open disk.
 - Windows: `WM_DEVICECHANGE` (`DBT_DEVICEARRIVAL`, `DBT_DEVICEREMOVECOMPLETE`,
   `DBT_DEVNODES_CHANGED`) through a native event filter. Written, not run.
 The Refresh button stays as the manual re-read of the open disk (its tooltip
-says so when hot-plug is active). This is OS code and should move into
-libstein's platform layer in a libstein session.
+says so when hot-plug is active). Moved into libstein on 2026-10-08
+(`stein::platform::DeviceWatcher`, own thread per OS); the app keeps a wrapper
+that marshals to the GUI thread and debounces.
 
 ### H1 Why the 178 kB image took a full-disk write (researched 2026-10-08)
 
