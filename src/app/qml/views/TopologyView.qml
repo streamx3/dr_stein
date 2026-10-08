@@ -138,6 +138,7 @@ Item {
                             // Name cell: swatch, name, OS device id, a small mount mark. It clips and elides;
                             // it never pushes the fixed columns.
                             Item {
+                                id: nameCell
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                                 Layout.fillHeight: true
@@ -156,17 +157,21 @@ Item {
                                         border.color: Theme.neutralStep(700)
                                     }
                                     Text {
+                                        id: nameText
+                                        // Capped at what the cell has left after the swatch and the marks,
+                                        // so it elides instead of being clipped.
+                                        readonly property int extras: (osDev.visible ? osDev.implicitWidth + 8 : 0) + (ejectMark.visible ? ejectMark.width + 8 : 0) + (lockMark.visible ? lockMark.width + 8 : 0)
                                         Layout.minimumWidth: 0
-                                        Layout.maximumWidth: 320
+                                        Layout.maximumWidth: Math.max(0, Math.min(320, nameCell.width - 16 - extras))
                                         text: row.model.depth === 0 ? Workspace.title : row.model.name
                                         font.family: Theme.fontFamily
                                         font.pixelSize: Theme.fontSize
                                         color: Theme.text
                                         elide: Text.ElideRight
                                     }
-                                    Text { visible: row.model.osDevice.length > 0; text: row.model.osDevice; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(400) }
-                                    Icon { visible: row.model.mountpoint.length > 0; name: "eject"; size: 11; color: Theme.textMuted; ToolTip.visible: mountHover.hovered; ToolTip.text: "mounted at " + row.model.mountpoint; ToolTip.delay: 400; HoverHandler { id: mountHover } }
-                                    Icon { visible: row.model.isLocked; name: "lock"; size: 11; color: Theme.warning }
+                                    Text { id: osDev; visible: row.model.osDevice.length > 0; text: row.model.osDevice; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.accentStep(400) }
+                                    Icon { id: ejectMark; visible: row.model.mountpoint.length > 0; name: "eject"; size: 11; color: Theme.textMuted; ToolTip.visible: mountHover.hovered; ToolTip.text: "mounted at " + row.model.mountpoint; ToolTip.delay: 400; HoverHandler { id: mountHover } }
+                                    Icon { id: lockMark; visible: row.model.isLocked; name: "lock"; size: 11; color: Theme.warning }
                                     Item { Layout.fillWidth: true }
                                 }
                             }
