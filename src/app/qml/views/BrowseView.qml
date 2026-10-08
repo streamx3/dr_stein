@@ -197,11 +197,32 @@ Item {
                                 Text { Layout.preferredWidth: 130; Layout.minimumWidth: 130; Layout.maximumWidth: 130; elide: Text.ElideRight; text: erow.model.mtimeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft }
                                 Text { Layout.preferredWidth: 90; Layout.minimumWidth: 90; Layout.maximumWidth: 90; elide: Text.ElideRight; text: erow.model.modeText; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
                             }
+                            // Drag-out: past the drag threshold the entry is staged to a temp copy and
+                            // handed to the OS as a file URL; dropping it in Finder / Explorer copies it.
+                            Item {
+                                id: dragProxy
+                                Drag.dragType: Drag.Automatic
+                                Drag.supportedActions: Qt.CopyAction
+                                Drag.mimeData: ({})
+                            }
                             MouseArea {
                                 id: erowMouse
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                onClicked: view.browser.select(erow.index)
+                                property real pressX: 0
+                                property real pressY: 0
+                                property bool dragging: false
+                                onPressed: (mouse) => { pressX = mouse.x; pressY = mouse.y; dragging = false }
+                                onPositionChanged: (mouse) => {
+                                    if (!pressed || dragging) return
+                                    if (Math.abs(mouse.x - pressX) < 8 && Math.abs(mouse.y - pressY) < 8) return
+                                    dragging = true
+                                    var urls = view.browser.stageForDrag([erow.index])
+                                    if (urls.length === 0) return
+                                    dragProxy.Drag.mimeData = { "text/uri-list": urls.join("\r\n") }
+                                    dragProxy.Drag.startDrag(Qt.CopyAction)
+                                }
+                                onClicked: if (!dragging) view.browser.select(erow.index)
                                 onDoubleClicked: view.browser.activate(erow.index)
                             }
                         }

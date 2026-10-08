@@ -8,6 +8,7 @@
 //   DRSTEIN_SCREENSHOT=<file.png>    grab the window after DRSTEIN_DELAY ms (default 2500), save it, quit
 //   DRSTEIN_SCRIPT=<javascript>      evaluated in Main.qml's scope 1 s after start (smoke runs)
 #include "device_watcher.hpp"
+#include "file_browser.hpp"
 #include "workspace.hpp"
 
 #include <QGuiApplication>
@@ -55,7 +56,10 @@ int main(int argc, char* argv[]) {
     });
     workspace->setHotplug(watcher->available());
     // Mounts made by the app end with it; the singleton's destructor never runs.
-    QObject::connect(&app, &QGuiApplication::aboutToQuit, &app, [workspace] { workspace->mounts().unmountAll(); });
+    QObject::connect(&app, &QGuiApplication::aboutToQuit, &app, [workspace] {
+        workspace->mounts().unmountAll();
+        drstein::ui::FileBrowser::cleanupStaging();   // copies staged for drag-out
+    });
 
     if (const char* script = std::getenv("DRSTEIN_SCRIPT"); script && *script) {
         const QString code = QString::fromUtf8(script);

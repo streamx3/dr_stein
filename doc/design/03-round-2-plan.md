@@ -114,6 +114,11 @@ progress, `[x]` done, `[r]` researched only (by request), `[?]` question back.
       "mounted" tag, the name cell clips and elides, Health is a word: OK muted,
       WARN / FAIL bold in colour.
 - [x] L3 USB icon redrawn symmetric (the mockup's own path was the crooked one).
+- [x] L4 Drag-out from Browse: the entry is staged to a temp copy when the drag
+      starts and offered as a `text/uri-list`; Finder / Explorer copy it. Capped at
+      1 GiB of files per drag (toast points at Copy out); staging is removed at quit.
+      Qt has no "file promise" support, so a lazy drag that reads on drop is not
+      possible without native code on each OS.
 
 ## Notes
 

@@ -156,6 +156,13 @@ public:
     Q_INVOKABLE void copyOut(int row, const QUrl& directory);
     Q_INVOKABLE void copyAll(const QUrl& directory);
     Q_INVOKABLE void mount();
+    // Drag-out: copies the rows into a fresh staging folder under the temp directory and
+    // returns their file URLs for a text/uri-list drag. Refuses (empty list, toast) above
+    // `kDragLimit` bytes of regular files; folders are copied as they are. Staging folders
+    // are removed by cleanupStaging() at quit, never earlier: the drop target may still be reading.
+    Q_INVOKABLE QStringList stageForDrag(const QList<int>& rows);
+    static void cleanupStaging();
+    static constexpr quint64 kDragLimit = 1ull << 30;
 
 Q_SIGNALS:
     void changed();

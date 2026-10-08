@@ -9,6 +9,10 @@
 #include "workspace.hpp"
 
 #include <QByteArray>
+#include <QCoreApplication>
+#include <QDir>
+#include <QStandardPaths>
+#include <QUrl>
 
 namespace drstein::ui {
 
@@ -516,6 +520,49 @@ void FileBrowser::copyAll(const QUrl& directory) {
         },
         [this](bool, const stein::Error&) { setBusy(false); });
     if (!started) setBusy(false);
+}
+
+namespace {
+QString stagingRoot() { return QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/drstein-drag-" + QString::number(QCoreApplication::applicationPid()); }
+int g_stagingCounter = 0;
+} // namespace
+
+QStringList FileBrowser::stageForDrag(const QList<int>& rows) {
+    QStringList urls;
+    if (!m_browser || m_busy) return urls;
+    quint64 total = 0;
+    std::vector<core::Entry> picked;
+    for (int row : rows) {
+        if (row < 0 || row >= m_entries.rowCount()) continue;
+        const auto& e = m_entries.entries()[static_cast<std::size_t>(row)];
+        if (e.stat.type == stein::fs::FileType::File) total += e.stat.size;
+        picked.push_back(e);
+    }
+    if (picked.empty()) return urls;
+    if (total > kDragLimit) {
+        Workspace::instance()->reportError(stein::Error(stein::ErrorCategory::InvalidArgument, "that is " + core::sizeText(total) + "; drag-out stages a copy first and stops at " + core::sizeText(kDragLimit) + ". Use Copy out\u2026 for this one."));
+        return urls;
+    }
+    const QString dir = stagingRoot() + "/" + QString::number(++g_stagingCounter);
+    if (!QDir().mkpath(dir)) {
+        Workspace::instance()->reportError(stein::Error(stein::ErrorCategory::Io, "could not create the staging folder " + ss(dir)));
+        return urls;
+    }
+    stein::NullProgressSink sink;
+    stein::Progress progress(sink);
+    for (const auto& e : picked) {
+        auto stats = core::copyOut(m_browser->reader(), e.entry.inode, e.entry.name, ss(dir), progress);
+        if (!stats) {
+            Workspace::instance()->reportError(stats.error());
+            continue;
+        }
+        urls << QUrl::fromLocalFile(dir + "/" + qs(e.entry.name)).toString();
+    }
+    return urls;
+}
+
+void FileBrowser::cleanupStaging() {
+    QDir(stagingRoot()).removeRecursively();
 }
 
 void FileBrowser::mount() {
