@@ -6,6 +6,7 @@
 #include "stein/container/luks.hpp"
 #include "stein/core/strings.hpp"
 #include "stein/mount/mount.hpp"
+#include "stein/pt/apm_table.hpp"
 #include "stein/pt/gpt_table.hpp"
 
 #include <algorithm>
@@ -295,6 +296,29 @@ std::string segmentLabel(const Node& node) {
     return s;
 }
 
+// APM: the OS makes a block device of every map slot, the map itself (slot 1) and the
+// Apple_Free slots included (Linux: sda1, sda3...). The probe tree has no node for the
+// map and a Free node for each free slot; these find the slot behind a row.
+const pt::ApmTable* apmOf(const Node& root) {
+    if (!root.table || root.table->type() != pt::TableType::Apm) return nullptr;
+    return dynamic_cast<const pt::ApmTable*>(root.table.get());
+}
+const pt::ApmSlot* apmMapSlot(const pt::ApmTable& apm) {
+    for (const auto& s : apm.slots())
+        if (s.isMap) return &s;
+    return nullptr;
+}
+const pt::ApmSlot* apmFreeSlotAt(const pt::ApmTable& apm, const Region& region) {
+    const std::uint32_t ss = apm.geometry().logicalSectorSize;
+    for (const auto& s : apm.slots())
+        if (s.isFree && s.firstLba * ss == region.offset && (s.lastLba + 1) * ss == region.end()) return &s;
+    return nullptr;
+}
+Region apmSlotRegion(const pt::ApmTable& apm, const pt::ApmSlot& s) {
+    const std::uint32_t ss = apm.geometry().logicalSectorSize;
+    return Region{s.firstLba * ss, (s.lastLba - s.firstLba + 1) * ss};
+}
+
 void collectRows(const Node& node, const NodePath& path, int depth, int segment, std::vector<TopologyRow>& out) {
     TopologyRow r;
     r.path = path;
@@ -376,10 +400,15 @@ std::vector<TopologyRow> topologyRows(const Node& root, bool expertMode) {
         if (r.path.empty()) continue;
         r.segment = segmentFor(NodePath{r.path.front()});
     }
-    if (expertMode && root.table && root.table->type() != pt::TableType::None) {
+    // Table metadata rows: expert mode only, except APM's map, which the OS lists as a
+    // partition of its own (sda1) and so is always shown.
+    const pt::ApmTable* apm = apmOf(root);
+    const pt::ApmSlot* mapSlot = apm ? apmMapSlot(*apm) : nullptr;
+    if ((expertMode || mapSlot) && root.table && root.table->type() != pt::TableType::None) {
         const auto regions = root.table->metadataRegions();
         const std::uint32_t ss = root.table->geometry().logicalSectorSize;
         for (std::size_t i = 0; i < regions.size(); ++i) {
+            if (!expertMode && !(mapSlot && i == 0)) continue;
             TopologyRow r;
             r.path = {};
             r.depth = 1;
@@ -402,6 +431,17 @@ std::vector<TopologyRow> topologyRows(const Node& root, bool expertMode) {
             r.health = Validity::Ok;
             r.healthText = "OK";
             r.canInspect = true;
+            if (mapSlot && i == 0) {
+                // Region 0 is Block0 plus the map; the OS device is the map slot alone (blocks 1..n).
+                r.kindLabel = "Partition " + std::to_string(mapSlot->slot);
+                r.name = "Apple partition map";
+                r.region = apmSlotRegion(*apm, *mapSlot);
+                r.sizeBytes = r.region.length;
+                r.sizeText = sizeBinary(r.region.length);
+                r.content = "the map itself · " + std::to_string(apm->mapEntries()) + " slots";
+                out.insert(out.begin() + std::min<std::size_t>(1, out.size()), std::move(r));   // slot 1 comes first, as in lsblk
+                continue;
+            }
             out.push_back(std::move(r));
         }
     }
@@ -419,14 +459,25 @@ std::string mountpointFor(const std::vector<OsMount>& mounts, const std::string&
 } // namespace
 
 void annotateOsDevices(std::vector<TopologyRow>& rows, const Node& root, const platform::DiskInfo& disk, std::string_view platformName, const std::vector<OsMount>& mounts) {
+    const pt::ApmTable* apm = apmOf(root);
     for (auto& r : rows) {
-        if (r.isMetadata) continue;
+        if (r.isMetadata) {
+            if (apm && r.metadataIndex == 0)
+                if (const auto* s = apmMapSlot(*apm)) r.osDevice = partitionKernelName(disk, s->slot, platformName);
+            continue;
+        }
         if (r.path.empty()) {
             r.osDevice = disk.kernelName;
             continue;
         }
         const Node* n = nodeAt(root, r.path);
-        if (!n || n->kind != NodeKind::Partition || !n->partition) continue;
+        if (!n) continue;
+        if (n->kind == NodeKind::Free) {
+            if (apm)
+                if (const auto* s = apmFreeSlotAt(*apm, n->region)) r.osDevice = partitionKernelName(disk, s->slot, platformName);
+            continue;
+        }
+        if (n->kind != NodeKind::Partition || !n->partition) continue;
         r.osDevice = partitionKernelName(disk, n->partition->index, platformName);
         r.mountpoint = mountpointFor(mounts, partitionOsPath(disk, n->partition->index, platformName));
     }
@@ -438,7 +489,16 @@ void annotateOsDevice(NodeDetails& d, const Node& root, const NodePath& path, co
         return;
     }
     const Node* n = nodeAt(root, path);
-    if (!n || n->kind != NodeKind::Partition || !n->partition) return;
+    if (!n) return;
+    if (n->kind == NodeKind::Free) {
+        const pt::ApmTable* apm = apmOf(root);
+        const pt::ApmSlot* s = apm ? apmFreeSlotAt(*apm, n->region) : nullptr;
+        if (!s) return;
+        d.osDevice = partitionOsPath(disk, s->slot, platformName);
+        if (!d.osDevice.empty()) d.rows.insert(d.rows.begin(), {"device", d.osDevice + " · Apple_Free slot " + std::to_string(s->slot)});
+        return;
+    }
+    if (n->kind != NodeKind::Partition || !n->partition) return;
     const std::string osPath = partitionOsPath(disk, n->partition->index, platformName);
     if (osPath.empty()) return;
     d.osDevice = osPath;
@@ -519,9 +579,19 @@ NodeDetails metadataDetails(const Node& root, int metadataIndex) {
     if (!root.table) return d;
     const auto regions = root.table->metadataRegions();
     if (metadataIndex < 0 || static_cast<std::size_t>(metadataIndex) >= regions.size()) return d;
-    const Region r = regions[static_cast<std::size_t>(metadataIndex)];
+    Region r = regions[static_cast<std::size_t>(metadataIndex)];
     const std::uint32_t ss = root.table->geometry().logicalSectorSize;
     d.title = schemeName(root.table->type()) + " metadata";
+    const pt::ApmTable* apm = metadataIndex == 0 ? apmOf(root) : nullptr;
+    const pt::ApmSlot* mapSlot = apm ? apmMapSlot(*apm) : nullptr;
+    if (mapSlot) {
+        // The map describes itself in slot 1; Block0 (sector 0) precedes it and is shown with it.
+        r = apmSlotRegion(*apm, *mapSlot);
+        d.kindLabel = "Partition " + std::to_string(mapSlot->slot);
+        d.title = "Apple partition map";
+        d.rows.push_back({"slot", std::to_string(mapSlot->slot) + " of " + std::to_string(apm->mapEntries()) + " · Apple_partition_map", false});
+        d.rows.push_back({"Block0", "sector 0 · driver descriptor map, before the map", false});
+    }
     d.regionText = lbaRangeText(r.offset / ss, (r.end() - 1) / ss, ss);
     d.rows.push_back({"bytes", hexRangeText(r)});
     d.rows.push_back({"size", sizeBinary(r.length)});

@@ -161,6 +161,46 @@ TEST_CASE("a whole-device filesystem has one segment and no table rows") {
     CHECK(segs[0].path.empty());
 }
 
+TEST_CASE("APM: the map and the free slots get the OS's device names, like lsblk") {
+    // parted fixture: slot 1 the map, 2 "Data", 3 "primary", 4 and 5 Apple_Free. Linux names all five.
+    auto tree = probed(drstein::test::loadFixture("pt/apm_basic.sparse"));
+    auto rows = topologyRows(tree, false);
+    const auto* map = rowNamed(rows, "Apple partition map");
+    REQUIRE(map != nullptr);
+    CHECK(map->isMetadata);
+    CHECK(map->kindLabel == "Partition 1");
+    CHECK(map->region.offset == 512);
+    CHECK(map->sizeBytes == 63 * 512);
+    platform::DiskInfo sda;
+    sda.osPath = "/dev/sda";
+    sda.kernelName = "sda";
+    annotateOsDevices(rows, tree, sda, "linux", {});
+    CHECK(rowNamed(rows, "Apple partition map")->osDevice == "sda1");
+    CHECK(rowNamed(rows, "Data")->osDevice == "sda2");
+    CHECK(rowNamed(rows, "primary")->osDevice == "sda3");
+    std::vector<std::string> freeDevices;
+    for (const auto& r : rows)
+        if (r.kindLabel == "Free") freeDevices.push_back(r.osDevice);
+    // Both gaps are Apple_Free slots, so both are rows even though the first is under a MiB.
+    REQUIRE(freeDevices.size() == 2);
+    CHECK(freeDevices[0] == "sda4");
+    CHECK(freeDevices[1] == "sda5");
+    CHECK(rows[1].name == "Apple partition map");   // right after the device, as the OS numbers it
+    for (const auto& r : rows)
+        if (r.kindLabel == "Free") {
+            auto d = nodeDetails(tree, r.path);
+            annotateOsDevice(d, tree, r.path, sda, "linux", {});
+            CHECK(d.osDevice == "/dev/" + r.osDevice);
+            CHECK(d.rows.front().key == "device");
+            break;
+        }
+    auto d = metadataDetails(tree, 0);
+    CHECK(d.title == "Apple partition map");
+    CHECK(d.kindLabel == "Partition 1");
+    // Expert mode adds nothing for APM: its one metadata region is the map row already.
+    CHECK(topologyRows(tree, true).size() == rows.size());
+}
+
 TEST_CASE("partition device names follow the platform's convention") {
     platform::DiskInfo mac;
     mac.osPath = "/dev/rdisk4";
