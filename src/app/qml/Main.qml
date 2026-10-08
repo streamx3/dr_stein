@@ -97,7 +97,8 @@ ApplicationWindow {
                     currentIndex: Math.max(0, window.viewIds.indexOf(Workspace.view))
                     TopologyView {
                         onUnlockRequested: { passphraseDialog.what = "unlock " + Workspace.title; passphraseDialog.callback = null; passphraseDialog.open() }
-                        onMountRequested: Workspace.view = "browse"
+                        // The Browse view's browser already follows the selection and owns the FUSE mount path.
+                        onMountRequested: browseView.browser.mount()
                     }
                     HexView {
                         id: hexView

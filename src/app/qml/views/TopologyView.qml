@@ -274,7 +274,7 @@ Item {
                     StButton { text: "Inspect bytes"; variant: "primary"; small: true; enabled: Workspace.details.canInspect; onClicked: Workspace.view = "hex" }
                     StButton { text: "Browse files"; small: true; enabled: Workspace.details.canBrowse; onClicked: Workspace.view = "browse" }
                     StButton { text: "Repair"; small: true; enabled: Workspace.details.canRepair; onClicked: Workspace.view = "partitions" }
-                    StButton { visible: Workspace.details.mountpoint.length === 0; text: "Mount"; small: true; enabled: Workspace.details.canMount && !JobRunner.running; onClicked: view.mountRequested() }
+                    StButton { visible: Workspace.details.mountpoint.length === 0; text: "Mount"; small: true; enabled: Workspace.details.canMount && !JobRunner.running; onClicked: view.mountRequested(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: "Mount it read-only for the OS (FUSE); the mount lasts until you unmount it or quit" }
                     StButton { visible: Workspace.details.mountpoint.length > 0; text: "Unmount " + Workspace.details.mountpoint; small: true; icon_: "eject"; enabled: !JobRunner.running; onClicked: Workspace.unmountSelected() }
                     StButton { text: "Unlock…"; small: true; icon_: "unlock"; visible: Workspace.details.isLockedContainer; onClicked: view.unlockRequested() }
                     StButton { text: "Compute usage"; variant: "ghost"; small: true; visible: !Workspace.details.hasUsed && Workspace.details.canInspect && Workspace.details.kindLabel !== "Device" && Workspace.details.kindLabel !== "Metadata" && Workspace.details.kindLabel !== "Free"; enabled: !JobRunner.running; onClicked: Workspace.computeUsage() }

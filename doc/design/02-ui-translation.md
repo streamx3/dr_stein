@@ -186,6 +186,10 @@ See `03-round-2-plan.md` for the item list. Rules that came out of it:
   "Partition 2" and a "mounted" tag when the OS has them mounted; the details
   card lists `device` and `mounted at`, and the Mount button becomes "Unmount …"
   for OS mounts (through libstein's `Platform::unmount`).
+  The Mount button itself mounts the selected filesystem read-only through
+  libstein's FUSE / NFS backend, the same path as "Mount instead" in Browse
+  (it drives the Browse view's `FileBrowser.mount()`, which follows the
+  selection); until 2026-10-09 it only switched to the Browse view.
 - **Environment is a default, not a lock.** `DRSTEIN_PALETTE` / `DRSTEIN_SCHEME`
   seed the settings at start (the elevated relaunch uses them) and the Settings
   dialog can change them afterwards.
