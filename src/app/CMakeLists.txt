@@ -73,7 +73,8 @@ set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set(DRSTEIN_PLATFORM_SOURCES
   platform/window_chrome.hpp platform/window_chrome.cpp
   platform/device_watcher.hpp platform/device_watcher.cpp
-  platform/codicon_provider.hpp platform/codicon_provider.cpp)
+  platform/codicon_provider.hpp platform/codicon_provider.cpp
+  platform/app_icon.hpp platform/app_icon.cpp)
 if(APPLE)
   list(APPEND DRSTEIN_PLATFORM_SOURCES platform/window_chrome_mac.mm)
 endif()
@@ -84,6 +85,24 @@ qt_add_executable(dr_stein MACOSX_BUNDLE main.cpp ${DRSTEIN_QT_SOURCES} ${DRSTEI
 qt_add_resources(dr_stein codicons PREFIX "/codicons" BASE icons/codicons FILES
   icons/codicons/chrome-minimize.svg icons/codicons/chrome-maximize.svg
   icons/codicons/chrome-restore.svg icons/codicons/chrome-close.svg)
+
+# The application icon (icons/app/README.md): the SVGs travel as resources for the window
+# icon, the .icns is the bundle icon on macOS, the .ico comes in through the .rc on Windows,
+# and Linux installs the SVGs into the hicolor theme next to a .desktop file.
+qt_add_resources(dr_stein appicon PREFIX "/icons" BASE icons/app FILES
+  icons/app/dr-stein.svg icons/app/dr-stein-small.svg)
+if(APPLE)
+  target_sources(dr_stein PRIVATE icons/app/dr-stein.icns)
+  set_source_files_properties(icons/app/dr-stein.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+elseif(WIN32)
+  enable_language(RC)
+  target_sources(dr_stein PRIVATE platform/dr_stein.rc)
+elseif(UNIX)
+  include(GNUInstallDirs)
+  install(FILES icons/app/dr-stein.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+  install(FILES icons/app/dr-stein-symbolic.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/symbolic/apps)
+  install(FILES platform/dr-stein.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+endif()
 
 qt_add_qml_module(dr_stein
   URI DrStein
@@ -104,6 +123,7 @@ set_target_properties(dr_stein PROPERTIES
   OUTPUT_NAME "Dr Stein"
   MACOSX_BUNDLE_BUNDLE_NAME "Dr Stein"
   MACOSX_BUNDLE_GUI_IDENTIFIER "local.dr-stein.app"
+  MACOSX_BUNDLE_ICON_FILE dr-stein.icns
   MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
   MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
   WIN32_EXECUTABLE TRUE)

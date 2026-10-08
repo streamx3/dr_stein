@@ -1,0 +1,2 @@
+// Windows resources: the application icon. Paths are relative to this file.
+IDI_ICON1 ICON "../icons/app/dr-stein.ico"

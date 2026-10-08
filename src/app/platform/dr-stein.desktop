@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dr Stein
+GenericName=Disk and disk-image tool
+Comment=Inspect, image, browse and repair disks and disk images
+Exec="Dr Stein" %F
+Icon=dr-stein
+Terminal=false
+Categories=System;Utility;Filesystem;
+Keywords=disk;partition;image;backup;restore;hex;
+StartupNotify=true

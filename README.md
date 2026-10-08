@@ -87,6 +87,7 @@ libstein/        the library, a git submodule (no Qt in it)
 src/core/        drstein_core: Qt-free application logic over libstein, with doctest tests
 src/qt/          QObject facades and models that QML binds to
 src/app/         main.cpp and the QML module (Theme, components, views, dialogs)
+src/app/icons/   the app icon (SVG, .ico, .icns; see its README) and the Linux caption-button glyphs
 doc/design/      architecture, the mockup → QML translation notes, the mockup itself, screenshots
 ```
 
