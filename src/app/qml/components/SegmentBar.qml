@@ -70,6 +70,16 @@ Item {
                     onPaint: {
                         var ctx = getContext("2d")
                         ctx.clearRect(0, 0, width, height)
+                        // Item clipping is rectangular, so clip the hatch to the segment's own rounded corners.
+                        var tl = seg.topLeftRadius, tr = seg.topRightRadius, br = seg.bottomRightRadius, bl = seg.bottomLeftRadius
+                        ctx.beginPath()
+                        ctx.moveTo(tl, 0)
+                        ctx.lineTo(width - tr, 0); ctx.arcTo(width, 0, width, tr, tr)
+                        ctx.lineTo(width, height - br); ctx.arcTo(width, height, width - br, height, br)
+                        ctx.lineTo(bl, height); ctx.arcTo(0, height, 0, height - bl, bl)
+                        ctx.lineTo(0, tl); ctx.arcTo(0, 0, tl, 0, tl)
+                        ctx.closePath()
+                        ctx.clip()
                         ctx.strokeStyle = Theme.neutralStep(800)
                         ctx.lineWidth = 2
                         for (var x = -height; x < width + height; x += 6) {

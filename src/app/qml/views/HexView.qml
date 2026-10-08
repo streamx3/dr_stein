@@ -48,12 +48,18 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.space3
+            // The structure switcher wraps into more rows rather than crowding out the position text.
             StSegmented {
+                id: structs
+                wrap: true
+                Layout.fillWidth: true
+                Layout.minimumWidth: widestOption
+                Layout.maximumWidth: oneRowWidth
                 model: view.inspector.structs.map(function(s, i) { return { label: s.label, value: i } })
                 currentValue: view.inspector.currentStruct
                 onPicked: (v) => view.inspector.currentStruct = v
             }
-            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: view.inspector.where; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textMuted; elide: Text.ElideRight }
+            Text { Layout.minimumWidth: implicitWidth; Layout.maximumWidth: implicitWidth; text: view.inspector.where; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textMuted; elide: Text.ElideRight }
         }
         RowLayout {
             Layout.fillWidth: true
@@ -147,7 +153,7 @@ Item {
                                             readonly property bool inSel: view.inspector.selectedField >= 0 && byteOffset >= Number(view.inspector.selectionStart) && byteOffset < Number(view.inspector.selectionEnd)
                                             readonly property bool dirty: hexRow.model.dirty[index] === true
                                             readonly property string hex: hexRow.model.hex[index]
-                                            width: (parent.width - 15 * 3) / 16
+                                            width: parent ? (parent.width - 15 * 3) / 16 : 0   // parent is gone while the row is torn down
                                             height: 18
                                             radius: 3
                                             color: inSel ? Theme.accentStep(800) : "transparent"
