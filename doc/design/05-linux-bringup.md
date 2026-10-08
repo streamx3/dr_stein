@@ -1,0 +1,90 @@
+# Linux bring-up
+
+First build and run of Dr Stein and libstein on Linux, 2026-10-08. Everything
+before this day had been compiled and run on macOS only; the Linux paths
+(device enumeration, inotify watcher, frameless window with chips, pkexec,
+`BLKZEROOUT`) were written blind.
+
+## Machine
+
+| | |
+|---|---|
+| OS | Linux Mint 22.1 (Ubuntu 24.04 base), kernel 6.8, x86_64 |
+| Desktop | Cinnamon on X11 (Mint has no Wayland session worth testing yet) |
+| Toolchain | GCC 13.3, CMake 3.28, GNU make (no Ninja installed) |
+| Qt | 6.11.2, online installer, `~/Qt/6.11.2/gcc_64` |
+| Repo | `~/git/dr_stein` with the libstein submodule; fetch over HTTPS, push over SSH |
+| Locale | `LANG=en_US`, `LC_NUMERIC=uk_UA`: sizes show a decimal comma, by design |
+
+Build without presets (they ask for Ninja):
+
+```bash
+cmake -S libstein -B build/libstein-tests -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DSTEIN_BUILD_TESTS=ON
+make -C build/libstein-tests -j14
+cmake -S . -B build/debug -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=$HOME/Qt/6.11.2/gcc_64
+make -C build/debug -j14
+```
+
+The app binary is `build/debug/src/app/Dr Stein` (same spelling as the macOS
+bundle executable). The scripted-run hooks work unchanged; from an SSH shell
+set `DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority` and the window opens in the
+logged-in session:
+
+```bash
+DRSTEIN_VIEW=topology DRSTEIN_DELAY=4000 DRSTEIN_SCREENSHOT=$HOME/drstein-scratch/shot.png "build/debug/src/app/Dr Stein" ~/drstein-scratch/composite.img
+```
+
+## What it took
+
+Less than expected. libstein compiled clean on GCC 13 at the first attempt
+and all thirteen test binaries pass (image, block, platform, core, fs, mount,
+pt, probe, layout, container, volume, ops, app). The app needed three fixes:
+
+- `int64_t` is `long` on Linux and `QVariant` has no constructor for it
+  (macOS has `long long`). The one place it bit, the OS error code in the
+  error map, is now cast to `qlonglong`.
+- Qt 6.11's CMake only looks at the first line of a `.js` file for
+  `.pragma library`; ours sat under the licence comment and was re-evaluated per
+  importing document. Moved to line 1.
+- Policy QTP0004 set to NEW so Qt generates `qmldir` files for the QML
+  subdirectories instead of warning.
+
+One libstein test (`test_app`, the backup/restore scenario) failed on both
+platforms: it still asserted "every byte written", which the skip-identical
+default made false on purpose. The assertion now checks written + identical
+covers the image and the write stays inside the damaged 2 MiB.
+
+## Verified over SSH
+
+- Core tests: 787 assertions pass.
+- CLI `stein probe` on the exported composite disk: correct tree.
+- The app opens in the X11 session with the frameless window and the custom
+  chips, lists the NVMe disks under Internal and the device-mapper volumes under
+  Virtual, and renders Topology, Hex, Browse, Image, Partitions and Tools the
+  same as on macOS (screenshots in `doc/design/screenshots/linux-*.png`).
+- Fonts fall back to Noto Sans and DejaVu Sans Mono; nothing overlaps.
+
+## Not yet verified (needs a person at the laptop)
+
+- Hot-plug: no USB stick was attached. Plug one in with the app open; the
+  sidebar should update within half a second (inotify on `/dev` plus
+  `/proc/self/mounts`).
+- Elevation through `pkexec`: the polkit dialog appears on the desktop, so it
+  must be exercised from a session on the laptop, not over SSH.
+- Raw-device paths: `BLKZEROOUT`, `BLKDISCARD`, partition table re-read after
+  an edit, restore onto a stick. All need root and the stick.
+- Window chrome: drag by the title area, double-click to maximise, edge resize
+  grips, and the chips' hover states. Also a Wayland session once Mint ships one.
+- Drag-out from Browse into Nemo.
+
+## GCC warnings
+
+A clean Debug build of the whole tree (libstein, core, Qt layer, app) in
+`build/warn` with GCC 13.3 produced no warnings at all.
+
+## Open questions for the laptop session
+
+- Whether to give the test user a `NOPASSWD` sudo rule limited to the test
+  binaries so the raw-device tests can run unattended. Andrii's call.
+- Whether to add Ninja and `libfuse3-dev` (FUSE mount backend is OFF without
+  it, so Browse's "Mount instead" is unavailable on this machine).
