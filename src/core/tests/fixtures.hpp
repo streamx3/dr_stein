@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
-// Test fixtures: libstein's checked-in sparse images, and a composite GPT
-// disk built in memory from them (ext4 in partition 1, FAT32 in partition 2,
-// a 1 MiB gap and some free tail), optionally written to a temporary file.
+// Test fixtures: libstein's checked-in sparse images, and composite disks
+// built in memory from them: a GPT one (ext4 in partition 1, FAT32 in
+// partition 2, a 1 MiB gap and some free tail) and an MBR one (FAT16, exFAT,
+// an extended container with an ext4 logical), optionally written to a file.
 #pragma once
 
 #include "stein/block/memory_device.hpp"
 #include "stein/block/sparse_file.hpp"
 #include "stein/ops/stack.hpp"
 #include "stein/core/progress.hpp"
+#include "stein/pt/mbr_table.hpp"
 
 #include <doctest.h>
 
@@ -63,6 +65,54 @@ inline CompositeDisk compositeDisk() {
     REQUIRE(applied->postconditionOk);
     REQUIRE(d.device->writeAt(d.part1Offset, ext->bytes()));
     REQUIRE(d.device->writeAt(d.part2Offset, fat->bytes()));
+    return d;
+}
+
+// An MBR disk, 1 MiB aligned: FAT16 in primary 1, exFAT in primary 2, a free MiB, then the
+// extended container (3) whose first logical (5) carries ext4. The logical's data starts one
+// MiB into the container because its EBR is the container's first sector; the container keeps
+// 8 MiB free after it for another logical, and 2 MiB stay free after the container for a primary.
+struct MbrCompositeDisk {
+    std::shared_ptr<stein::MemoryDevice> device;
+    stein::ByteCount fatOffset = 0, fatSize = 0, exfatOffset = 0, exfatSize = 0;
+    stein::ByteCount extendedOffset = 0, extendedSize = 0, logicalOffset = 0, logicalSize = 0;
+};
+
+inline MbrCompositeDisk mbrComposite() {
+    using namespace stein;
+    auto fat = loadFixture("fatfs/fat16.sparse");
+    auto exfat = loadFixture("exfatfs/exfat.sparse");
+    auto ext = loadFixture("extfs/ext4.sparse");
+    MbrCompositeDisk d;
+    d.fatOffset = 1 * MiB;
+    d.fatSize = alignUp(fat->size(), MiB);
+    d.exfatOffset = d.fatOffset + d.fatSize;
+    d.exfatSize = alignUp(exfat->size(), MiB);
+    d.extendedOffset = d.exfatOffset + d.exfatSize + 1 * MiB;
+    d.logicalOffset = d.extendedOffset + 1 * MiB;
+    d.logicalSize = alignUp(ext->size(), MiB);
+    d.extendedSize = 1 * MiB + d.logicalSize + 8 * MiB;
+    const ByteCount total = d.extendedOffset + d.extendedSize + 2 * MiB;
+    d.device = std::make_shared<MemoryDevice>(total, 512);
+
+    auto table = pt::MbrTable::createEmpty(d.device->geometry());
+    table->setDiskSignature(0x5EC7A11E);
+    auto add = [&](ByteCount offset, ByteCount size, std::uint8_t type, bool logical) {
+        pt::Partition p;
+        p.firstLba = offset / 512;
+        p.lastLba = (offset + size) / 512 - 1;
+        p.type = pt::PartitionType::mbr(type);
+        p.isLogical = logical;
+        REQUIRE(table->addPartition(p));
+    };
+    add(d.fatOffset, d.fatSize, 0x06, false);
+    add(d.exfatOffset, d.exfatSize, 0x07, false);
+    add(d.extendedOffset, d.extendedSize, 0x05, false);
+    add(d.logicalOffset, d.logicalSize, 0x83, true);
+    REQUIRE(table->write(*d.device));
+    REQUIRE(d.device->writeAt(d.fatOffset, fat->bytes()));
+    REQUIRE(d.device->writeAt(d.exfatOffset, exfat->bytes()));
+    REQUIRE(d.device->writeAt(d.logicalOffset, ext->bytes()));
     return d;
 }
 

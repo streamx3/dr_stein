@@ -5,6 +5,7 @@
 #include "drstein/core/opened.hpp"
 #include "job_runner.hpp"
 #include "stein/block/slice_device.hpp"
+#include "stein/platform/platform.hpp"
 #include "util.hpp"
 #include "workspace.hpp"
 
@@ -371,6 +372,7 @@ QVariantMap StructInspector::write() {
     if (!dev) return errorToVariant(dev.error());
     // The struct's device may be a slice of the root; map the edited bytes through its extents.
     const auto& ref = m_editor->current();
+    const auto& d = w->current()->descriptor;
     std::shared_ptr<stein::BlockDevice> target = *dev;
     if (ref.device != w->current()->device) {
         const auto extents = ref.device->extentsOnParent();
@@ -381,6 +383,9 @@ QVariantMap StructInspector::write() {
         target = *slice;
     }
     if (auto r = m_editor->commitTo(*target); !r) return errorToVariant(r.error());
+    // A table written to a real disk is not seen by the OS until it re-reads it.
+    if (d.kind == core::SourceKind::Disk && ref.source == core::StructSource::Table)
+        if (auto rr = stein::platform::current().rereadPartitionTable(d.path); !rr) w->reportError(rr.error());
     refreshViews();
     Q_EMIT changed();
     Q_EMIT written();

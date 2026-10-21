@@ -23,6 +23,7 @@ struct AddPartitionForm {
     std::string name;
     std::optional<std::uint32_t> index;
     bool wipeSignatures = true;
+    bool logical = false;             // MBR only: a logical inside the extended partition (the library places its EBR)
 };
 
 struct EditPartitionForm {            // empty fields keep their value

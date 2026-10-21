@@ -266,3 +266,91 @@ TEST_CASE("a filesystem that can fix its own metadata is repairable at the conte
     CHECK(!nodeDetails(*again, {}).canRepair);
 }
 
+TEST_CASE("MBR: the extended container and its logical are rows of their own") {
+    auto disk = drstein::test::mbrComposite();
+    auto tree = probed(disk.device);
+    auto rows = topologyRows(tree, false);
+    REQUIRE(rows.size() >= 5);
+    CHECK(rows[0].kindLabel == "Device");
+    CHECK(rows[0].content == "MBR · 4 partitions");
+    const TopologyRow* fat = nullptr;
+    const TopologyRow* exfat = nullptr;
+    const TopologyRow* extended = nullptr;
+    const TopologyRow* logical = nullptr;
+    for (const auto& r : rows) {
+        if (r.kindLabel == "Partition 1") fat = &r;
+        if (r.kindLabel == "Partition 2") exfat = &r;
+        if (r.kindLabel == "Partition 3") extended = &r;
+        if (r.kindLabel == "Partition 5") logical = &r;
+    }
+    REQUIRE(fat);
+    CHECK(fat->content.starts_with("FAT16"));
+    CHECK(fat->canBrowse);
+    REQUIRE(exfat);
+    CHECK(exfat->content.starts_with("exFAT"));
+    CHECK(exfat->canBrowse);
+    CHECK(exfat->region.offset == disk.exfatOffset);
+    REQUIRE(extended);
+    CHECK(extended->depth == 1);
+    CHECK(extended->name == pt::types::name(pt::PartitionType::mbr(0x05)));
+    CHECK(extended->content == "extended container");
+    CHECK(extended->region.offset == disk.extendedOffset);
+    CHECK(extended->sizeBytes == disk.extendedSize);
+    CHECK(extended->segment == -1);   // the bar shows what fills it, not the container
+    CHECK(!extended->canBrowse);
+    CHECK(!extended->canInspect);
+    REQUIRE(logical);
+    CHECK(logical->depth == 1);   // the probe lists logicals beside the primaries, in disk order
+    CHECK(logical->content.starts_with("ext4"));
+    CHECK(logical->region.offset == disk.logicalOffset);
+    CHECK(logical->sizeBytes == disk.logicalSize);
+    CHECK(logical->canBrowse);
+    CHECK(logical->segment >= 0);
+
+    auto segs = segments(tree);
+    int parts = 0;
+    for (const auto& s : segs)
+        if (!s.isFree) ++parts;
+    CHECK(parts == 3);
+    CHECK(segs[logical->segment].region.offset == disk.logicalOffset);
+
+    auto de = nodeDetails(tree, extended->path);
+    CHECK(de.kindLabel == "Partition 3");
+    bool flagged = false;
+    for (const auto& r : de.rows)
+        if (r.key == "flags") {
+            flagged = true;
+            CHECK(r.value.find("extended") != std::string::npos);
+        }
+    CHECK(flagged);
+    auto dl = nodeDetails(tree, logical->path);
+    flagged = false;
+    for (const auto& r : dl.rows)
+        if (r.key == "flags") {
+            flagged = true;
+            CHECK(r.value.find("logical") != std::string::npos);
+        }
+    CHECK(flagged);
+    CHECK(dl.canBrowse);
+
+    // The OS numbers logicals from 5, like the table does.
+    platform::DiskInfo sda;
+    sda.osPath = "/dev/sda";
+    sda.kernelName = "sda";
+    annotateOsDevices(rows, tree, sda, "linux", {});
+    for (const auto& r : rows) {
+        if (r.kindLabel == "Partition 3") CHECK(r.osDevice == "sda3");
+        if (r.kindLabel == "Partition 5") CHECK(r.osDevice == "sda5");
+    }
+
+    // Expert mode adds the MBR sector and the one EBR, named as the Hex view names the structure.
+    auto expert = topologyRows(tree, true);
+    CHECK(expert.size() == rows.size() + 2);
+    CHECK(rowNamed(expert, "MBR sector"));
+    const auto* ebr = rowNamed(expert, "EBR @ LBA " + std::to_string(disk.extendedOffset / 512));
+    REQUIRE(ebr);
+    CHECK(ebr->isMetadata);
+    CHECK(ebr->region.offset == disk.extendedOffset);
+    CHECK(ebr->sizeBytes == 512);
+}
+

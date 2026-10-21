@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include "drstein/core/format.hpp"
 #include "drstein/core/structs.hpp"
 #include "fixtures.hpp"
 
@@ -229,5 +230,48 @@ TEST_CASE("exFAT: the boot checksum is a sector-wide field; setting it refills t
         CHECK(w == expected);
     }
     CHECK(ed.dirtyBytes() > 1);   // the drive_select byte and most of the checksum sector
+}
+
+TEST_CASE("MBR: the device node lists the MBR sector and every EBR of the chain") {
+    auto disk = drstein::test::mbrComposite();
+    auto tree = probed(disk.device);
+    auto refs = structuresFor(tree, {});
+    REQUIRE(refs.size() == 2);
+    CHECK(refs[0].id == "table/MBR sector");
+    CHECK(refs[0].label == "MBR sector");
+    CHECK(refs[0].offset == 0);
+    CHECK(refs[0].shownSize == 512);
+    CHECK(refs[0].validity.starts_with("all "));
+    const std::string ebrLabel = "EBR @ LBA " + std::to_string(disk.extendedOffset / 512);
+    CHECK(refs[1].label == ebrLabel);
+    CHECK(refs[1].offset == disk.extendedOffset);
+    CHECK(refs[1].shownSize == 512);
+    CHECK(refs[1].where.starts_with("LBA " + grouped(disk.extendedOffset / 512)));
+    auto fields = fieldRows(refs[1]);
+    CHECK(byName(fields, "logical partition"));
+    CHECK(!byName(fields, "next EBR link"));   // one logical: the chain ends here
+    const auto* type = byName(fields, "type");
+    REQUIRE(type);
+    CHECK(type->pretty == pt::types::name(pt::PartitionType::mbr(0x83)));
+
+    // A second logical hangs a second EBR off the first one.
+    auto table = pt::PartitionTable::read(disk.device);
+    REQUIRE(table);
+    pt::Partition more;
+    more.isLogical = true;
+    more.type = pt::PartitionType::mbr(0x83);
+    more.firstLba = (disk.logicalOffset + disk.logicalSize) / 512 + pt::MbrTable::kDefaultEbrGap;
+    more.lastLba = more.firstLba + 4096 - 1;
+    REQUIRE((*table)->addPartition(more));
+    REQUIRE((*table)->write(*disk.device));
+    auto again = probed(disk.device);
+    refs = structuresFor(again, {});
+    REQUIRE(refs.size() == 3);
+    CHECK(refs[1].label == ebrLabel);
+    CHECK(refs[2].label == "EBR @ LBA " + std::to_string(more.firstLba - pt::MbrTable::kDefaultEbrGap));
+    CHECK(refs[2].offset == (more.firstLba - pt::MbrTable::kDefaultEbrGap) * 512);
+    fields = fieldRows(refs[1]);
+    CHECK(byName(fields, "next EBR link"));
+    CHECK(!byName(fieldRows(refs[2]), "next EBR link"));
 }
 

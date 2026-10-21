@@ -35,6 +35,7 @@ class PartitionEditor : public QObject {
     Q_PROPERTY(QString deviceIdentity READ deviceIdentity NOTIFY changed)
     Q_PROPERTY(QString freeSpaceHint READ freeSpaceHint NOTIFY changed)
     Q_PROPERTY(bool canRepair READ canRepair NOTIFY changed)
+    Q_PROPERTY(bool hasExtended READ hasExtended NOTIFY changed)   // MBR with an extended container: logicals can be added
 
 public:
     explicit PartitionEditor(QObject* parent = nullptr);
@@ -57,9 +58,10 @@ public:
     QString deviceIdentity() const;
     QString freeSpaceHint() const;
     bool canRepair() const;
+    bool hasExtended() const;
 
     Q_INVOKABLE void reload();
-    Q_INVOKABLE QVariantMap addPartition(const QString& start, const QString& size, const QString& end, const QString& type, const QString& name, bool wipe);
+    Q_INVOKABLE QVariantMap addPartition(const QString& start, const QString& size, const QString& end, const QString& type, const QString& name, bool wipe, bool logical = false);
     Q_INVOKABLE QVariantMap editPartition(int index, const QString& start, const QString& size, const QString& end, const QString& type, const QString& name, bool nameChanged);
     Q_INVOKABLE QVariantMap deletePartition(int index);
     Q_INVOKABLE QVariantMap repairTable();

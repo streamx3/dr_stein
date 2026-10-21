@@ -447,6 +447,7 @@ std::vector<TopologyRow> topologyRows(const Node& root, bool expertMode) {
             const Region& reg = regions[i];
             const ByteCount total = root.region.length;
             if (reg.offset == 0) r.name = scheme == "GPT" ? "Protective MBR" : scheme + " sector";
+            else if (scheme == "MBR") r.name = "EBR @ LBA " + std::to_string(reg.offset / ss);   // as the Hex view's structure switcher labels it
             else if (scheme != "GPT") r.name = scheme + " metadata";
             else if (reg.end() >= total) r.name = "GPT backup header";
             else if (reg.end() + 34 * ss >= total) r.name = "GPT backup entries";

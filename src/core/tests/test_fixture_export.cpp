@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Not a test of anything: with DRSTEIN_EXPORT_COMPOSITE=<file> set, writes the
-// composite GPT disk (ext4 + FAT32 from libstein's fixtures) to that file so
-// the application can be driven by hand or by screenshots without root.
+// composite GPT disk (ext4 + FAT32 from libstein's fixtures) to that file, and
+// with DRSTEIN_EXPORT_MBR_COMPOSITE=<file> the MBR one (FAT16, exFAT, an
+// extended container with an ext4 logical), so the application can be driven
+// by hand or by screenshots without root.
 #include "fixtures.hpp"
 
 #include <doctest.h>
@@ -12,6 +14,14 @@ TEST_CASE("export the composite disk when asked") {
     const char* out = std::getenv("DRSTEIN_EXPORT_COMPOSITE");
     if (!out || !*out) return;
     auto disk = drstein::test::compositeDisk();
+    drstein::test::writeDevice(*disk.device, out);
+    MESSAGE("wrote " << out);
+}
+
+TEST_CASE("export the MBR composite disk when asked") {
+    const char* out = std::getenv("DRSTEIN_EXPORT_MBR_COMPOSITE");
+    if (!out || !*out) return;
+    auto disk = drstein::test::mbrComposite();
     drstein::test::writeDevice(*disk.device, out);
     MESSAGE("wrote " << out);
 }

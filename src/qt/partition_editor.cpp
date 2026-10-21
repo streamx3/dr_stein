@@ -185,13 +185,20 @@ bool PartitionEditor::canRepair() const {
     return false;
 }
 
+bool PartitionEditor::hasExtended() const {
+    if (!m_session || !m_session->preview().table || m_session->preview().table->type() != stein::pt::TableType::Mbr) return false;
+    for (const auto& p : m_session->preview().table->partitions())
+        if (p.isExtended) return true;
+    return false;
+}
+
 QVariantMap PartitionEditor::report(const stein::Expected<void>& r) {
     Q_EMIT changed();
     if (!r) return errorToVariant(r.error());
     return {};
 }
 
-QVariantMap PartitionEditor::addPartition(const QString& start, const QString& size, const QString& end, const QString& type, const QString& name, bool wipe) {
+QVariantMap PartitionEditor::addPartition(const QString& start, const QString& size, const QString& end, const QString& type, const QString& name, bool wipe, bool logical) {
     if (!m_session) return errorToVariant(stein::Error(stein::ErrorCategory::InvalidArgument, "no edit session"));
     core::AddPartitionForm f;
     f.startText = ss(start);
@@ -200,6 +207,7 @@ QVariantMap PartitionEditor::addPartition(const QString& start, const QString& s
     f.typeText = ss(type);
     f.name = ss(name);
     f.wipeSignatures = wipe;
+    f.logical = logical;
     return report(m_session->addPartition(f));
 }
 

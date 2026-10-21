@@ -147,4 +147,117 @@ TEST_CASE("a new table on a blank device") {
     CHECK(rows[0].change == "new");
     CHECK(rows[0].typeCode == "0x83");
     CHECK(rows[0].sizeText == "8 MiB");
+
+    // Logicals need an extended container first; then the library places the EBR at its start.
+    AddPartitionForm logical;
+    logical.typeText = "83";
+    logical.logical = true;
+    auto refused = session->addPartition(logical);
+    REQUIRE(!refused);
+    CHECK(refused.error().category() == ErrorCategory::NotFound);
+    AddPartitionForm extended;
+    extended.typeText = "05";
+    extended.sizeText = "32 MiB";
+    REQUIRE(session->addPartition(extended));
+    REQUIRE(session->preview().table->find(2));
+    CHECK(session->preview().table->find(2)->isExtended);
+    REQUIRE(session->addPartition(logical));
+    const auto* l = session->preview().table->find(5);
+    REQUIRE(l);
+    CHECK(l->isLogical);
+    const auto* ext = session->preview().table->find(2);
+    REQUIRE(ext);
+    CHECK(l->ebrLba == ext->firstLba);
+    CHECK(l->firstLba == ext->firstLba + pt::MbrTable::kDefaultEbrGap);
+    CHECK(l->lastLba == ext->lastLba);   // an empty size runs to the end of the container
+    CHECK(pendingRows(session->stack()).back().title.starts_with("Add logical partition 5: Linux"));
+}
+
+TEST_CASE("MBR: a logical goes inside the extended container, a primary stays outside it") {
+    auto disk = drstein::test::mbrComposite();
+    drstein::test::TempDir tmp;
+    const auto file = drstein::test::writeDevice(*disk.device, tmp.file("mbr.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+    auto session = EditSession::open(*desc, OpenOptions{});
+    REQUIRE(session);
+    REQUIRE(session->preview().table);
+    CHECK(session->preview().table->type() == pt::TableType::Mbr);
+    const Lba extFirst = disk.extendedOffset / 512, extLast = (disk.extendedOffset + disk.extendedSize) / 512 - 1;
+    const Lba firstLogicalEnd = (disk.logicalOffset + disk.logicalSize) / 512 - 1;
+
+    // Defaults: the container's largest gap, data one gap past where the EBR will go.
+    AddPartitionForm add;
+    add.typeText = "83";
+    add.logical = true;
+    REQUIRE(session->addPartition(add));
+    REQUIRE(session->preview().table->find(6));
+    const pt::Partition added = *session->preview().table->find(6);   // the preview is rebuilt by every push
+    CHECK(added.isLogical);
+    CHECK(added.firstLba == firstLogicalEnd + 1 + pt::MbrTable::kDefaultEbrGap);
+    CHECK(added.lastLba == extLast);
+    REQUIRE(added.ebrLba.has_value());
+    CHECK(*added.ebrLba > firstLogicalEnd);
+    CHECK(*added.ebrLba < added.firstLba);
+    CHECK(*added.ebrLba > extFirst);
+    auto pending = pendingRows(session->stack());
+    REQUIRE(pending.size() == 1);
+    CHECK(pending[0].title.starts_with("Add logical partition 6: Linux"));
+    CHECK(pending[0].destructive);
+    bool fresh = false;
+    for (const auto& r : previewRows(session->base(), session->preview()))
+        if (r.change == "new") {
+            fresh = true;
+            CHECK(r.index == 6);
+            CHECK(r.typeCode == "0x83");
+        }
+    CHECK(fresh);
+
+    // A primary with defaults takes the free tail after the container, never the container's gap.
+    AddPartitionForm primary;
+    primary.typeText = "0x0C";
+    REQUIRE(session->addPartition(primary));
+    REQUIRE(session->preview().table->find(4));
+    const pt::Partition p4 = *session->preview().table->find(4);
+    CHECK(!p4.isLogical);
+    CHECK(p4.firstLba == extLast + 1);
+    CHECK(p4.lastLba == (session->preview().table->lastUsableLba() + 1) / 2048 * 2048 - 1);
+    CHECK(pendingRows(session->stack())[1].title.starts_with("Add partition: "));   // the library numbers primaries itself
+    // With every primary slot taken and no gap outside the container, a primary has nowhere to go.
+    AddPartitionForm fifth;
+    fifth.typeText = "83";
+    CHECK(!session->addPartition(fifth));
+    CHECK(pendingRows(session->stack()).size() == 2);
+
+    NullProgressSink sink;
+    Progress progress(sink);
+    auto applied = session->apply(progress);
+    REQUIRE(applied);
+    CHECK(applied->postconditionOk);
+    REQUIRE(session->base().table);
+    const auto& table = *session->base().table;
+    CHECK(table.partitions().size() == 6);
+    REQUIRE(table.find(6));
+    CHECK(table.find(6)->isLogical);
+    CHECK(table.find(6)->ebrLba == added.ebrLba);
+    CHECK(table.find(6)->firstLba == added.firstLba);
+    CHECK(table.metadataRegions().size() == 3);   // the MBR and both EBRs
+    for (const auto& d : table.diagnostics()) CHECK(d.severity < layout::Validity::Error);
+}
+
+TEST_CASE("logical partitions are an MBR thing") {
+    auto disk = drstein::test::compositeDisk();
+    drstein::test::TempDir tmp;
+    const auto file = drstein::test::writeDevice(*disk.device, tmp.file("gpt.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+    auto session = EditSession::open(*desc, OpenOptions{});
+    REQUIRE(session);
+    AddPartitionForm add;
+    add.typeText = "8300";
+    add.logical = true;
+    auto r = session->addPartition(add);
+    REQUIRE(!r);
+    CHECK(r.error().category() == ErrorCategory::Unsupported);
+    CHECK(session->stack().empty());
 }

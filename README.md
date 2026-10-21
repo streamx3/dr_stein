@@ -21,7 +21,7 @@ Seven views, translated from the Claude Design prototype in
 | Image | create `.stein` or raw images of a whole device or of one partition (used blocks only, LZ4, split, encrypted); partition images record where they came from and restore into a partition; restore any supported container to a disk; verify; manage key slots |
 | Profiles | the dr_stein one-button case: a disk identity plus an image, three buttons, all dry-runnable |
 | Tools | surface scan (read-only) and the fake-flash capacity test (destructive, confirmed by typing the device name) |
-| Partitions | create / add / edit / delete / repair / wipe on an operation stack with a live preview; applied in one pass |
+| Partitions | create / add (on MBR, logical partitions inside the extended container too) / edit / delete / repair (GPT copies, the MBR EBR chain) / wipe on an operation stack with a live preview; applied in one pass, after which a real disk's table is re-read by the OS |
 
 Everything opens read-only. Writes go through the library's operation stack or
 an explicit, identity-repeating confirmation; while a write runs, everything but
@@ -109,15 +109,24 @@ DRSTEIN_CHROME=native "Dr Stein"                          # system title bar for
 ```
 
 `DRSTEIN_EXPORT_COMPOSITE=/tmp/disk.img build/debug/src/core/drstein_core_tests -tc="export*"`
-writes a 139 MB GPT disk (ext4 + FAT32 from libstein's fixtures) to play with.
+writes a 139 MB GPT disk (ext4 + FAT32 from libstein's fixtures) to play with;
+`DRSTEIN_EXPORT_MBR_COMPOSITE=/tmp/mbr.img` in the same command writes a 181 MB
+MBR disk (FAT16, exFAT, an extended container holding an ext4 logical, free
+space inside and after the container).
 
 ## Status
 
 Every view is wired to the library and exercised against image files:
 imaging (create, verify, restore byte-identical), partition editing with
-apply, hex edits with checksum repair, browsing with preview, hash and copy
-out, NFS loopback mounts on macOS, surface scans, profile backups. Not done
-yet: a privileged helper (the library's plan) and SMART. Linux builds and
+apply on GPT and MBR (logical partitions included), repair of GPT copies, the
+MBR EBR chain, FAT backup boot / FSInfo / FAT copies and exFAT boot regions,
+hex edits with checksum repair, browsing with preview, hash and copy out, NFS
+loopback mounts on macOS, surface scans, profile backups. The core tests (41
+cases) run on a GPT and an MBR composite disk built from libstein's fixtures.
+Written but not covered by a test: the OS re-read of the table after an apply
+on a real disk (tests use image sources). Not done yet: a privileged helper
+(the library's plan), SMART, hex edits and repairs inside containers and
+volumes, data-moving resize/move. Linux builds and
 runs on Mint 22.1 / GCC 13 / Qt 6.11 (see `doc/design/05-linux-bringup.md`);
 the Windows build follows libstein's CI but has not been run by hand.
 

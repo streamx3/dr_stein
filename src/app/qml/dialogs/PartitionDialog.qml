@@ -16,14 +16,14 @@ StDialog {
     body: editing ? "Empty fields keep their value. Bounds in sectors (2048s) or sizes (512 MiB)." : "Empty start and size take the largest free region, aligned to 1 MiB."
     dialogWidth: 520
     onOpened: {
-        start.text = ""; size.text = ""; end.text = ""; name.text = editing && current ? current.name : ""; wipe.checked = !editing
+        start.text = ""; size.text = ""; end.text = ""; name.text = editing && current ? current.name : ""; wipe.checked = !editing; logical.checked = false
         var code = editing && current ? current.typeCode : (editor && editor.scheme === "GPT" ? "8300" : editor && editor.scheme === "MBR" ? "0x83" : "")
         type.text = code
         start.forceActiveFocus()
     }
     function submit() {
         var e = editing ? editor.editPartition(editIndex, start.text, size.text, end.text, type.text, name.text, name.text !== (current ? current.name : ""))
-                        : editor.addPartition(start.text, size.text, end.text, type.text, name.text, wipe.checked)
+                        : editor.addPartition(start.text, size.text, end.text, type.text, name.text, wipe.checked, logical.visible && logical.checked)
         if (e.message !== undefined) { Workspace.error(e); return }
         close()
     }
@@ -61,6 +61,8 @@ StDialog {
             StTextField { id: name; Layout.fillWidth: true; placeholderText: dialog.editor && dialog.editor.scheme === "MBR" ? "MBR has no names" : "optional"; enabled: !(dialog.editor && dialog.editor.scheme === "MBR"); onAccepted: dialog.submit() }
         }
     }
+    // MBR only, and only once an extended container exists: the library picks the EBR's place.
+    StCheck { id: logical; visible: !dialog.editing && dialog.editor !== null && dialog.editor.scheme === "MBR" && dialog.editor.hasExtended; text: "Logical, inside the extended partition"; sublabel: "Takes slot 5 or later; an empty start lands in the container's largest gap, one MiB after its EBR." }
     StCheck { id: wipe; visible: !dialog.editing; text: "Wipe stale filesystem signatures in the new range"; sublabel: "Marks the operation destructive; the bytes are zeroed when applied." }
     actions: [
         StButton { text: dialog.editing ? "Update" : "Add"; variant: "primary"; onClicked: dialog.submit() },

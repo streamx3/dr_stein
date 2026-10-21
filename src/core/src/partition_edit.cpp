@@ -5,8 +5,11 @@
 #include "drstein/core/imaging.hpp"
 #include "stein/core/guid.hpp"
 #include "stein/core/strings.hpp"
+#include "stein/platform/platform.hpp"
+#include "stein/pt/mbr_table.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 
 namespace drstein::core {
@@ -66,6 +69,30 @@ Expected<EditSession> EditSession::open(const SourceDescriptor& source, const Op
 
 Expected<void> EditSession::createTable(pt::TableType type) { return m_stack->push(std::make_unique<ops::CreateTable>(type)); }
 
+namespace {
+
+// The table counts the extended container's interior as free (logicals fill it), so the
+// candidates for a new partition depend on what is being added: a logical may only use the
+// inside, a primary only the outside. Regions that straddle the container are cut.
+std::vector<pt::FreeRegion> candidateRegions(std::vector<pt::FreeRegion> free, const pt::Partition* extended, bool logical, SectorCount minSectors) {
+    if (!extended) return free;
+    std::vector<pt::FreeRegion> out;
+    auto keep = [&](Lba first, Lba last) {
+        if (last >= first && last - first + 1 >= minSectors) out.push_back({first, last});
+    };
+    for (const auto& f : free) {
+        if (logical) {
+            keep(std::max(f.firstLba, extended->firstLba), std::min(f.lastLba, extended->lastLba));
+            continue;
+        }
+        if (f.firstLba < extended->firstLba) keep(f.firstLba, std::min(f.lastLba, extended->firstLba - 1));
+        if (f.lastLba > extended->lastLba) keep(std::max(f.firstLba, extended->lastLba + 1), f.lastLba);
+    }
+    return out;
+}
+
+} // namespace
+
 Expected<void> EditSession::addPartition(const AddPartitionForm& form) {
     const probe::Node& tree = preview();
     if (!tree.table || tree.table->type() == pt::TableType::None) return fail(ErrorCategory::NotFound, "no partition table; create one first");
@@ -77,10 +104,25 @@ Expected<void> EditSession::addPartition(const AddPartitionForm& form) {
     auto type = parseType(table.type(), form.typeText);
     if (!type) return fail(type.error());
     p.type = *type;
+    const pt::Partition* extended = nullptr;
+    for (const auto& q : table.partitions())
+        if (q.isExtended) extended = &q;
+    if (form.logical) {
+        if (!table.limits().supportsLogical) return fail(ErrorCategory::Unsupported, "only MBR tables have logical partitions");
+        if (!extended) return fail(ErrorCategory::NotFound, "no extended partition to hold a logical partition");
+        p.isLogical = true;
+        if (p.index == 0) {
+            // The library would pick this slot itself; naming it here lets the pending text say which.
+            p.index = 5;
+            for (const auto& q : table.partitions())
+                if (q.isLogical) p.index = std::max(p.index, q.index + 1);
+        }
+    }
     // Default placement: the largest free region, start aligned to 1 MiB (what sgdisk does).
     const SectorCount align = std::max<SectorCount>(1, (1 * MiB) / ss);
-    auto free = table.freeRegions(align);
-    if (free.empty() && form.startText.empty()) return fail(ErrorCategory::OutOfRange, "no free space in the table");
+    auto free = candidateRegions(table.freeRegions(align), extended, form.logical, align);
+    if (free.empty() && form.startText.empty())
+        return fail(ErrorCategory::OutOfRange, form.logical ? "no free space inside the extended partition" : "no free space in the table");
     pt::FreeRegion target;
     for (const auto& f : free)
         if (f.sectors() > target.sectors()) target = f;
@@ -91,7 +133,10 @@ Expected<void> EditSession::addPartition(const AddPartitionForm& form) {
         for (const auto& f : free)
             if (*s >= f.firstLba && *s <= f.lastLba) target = f;
     } else {
-        p.firstLba = ((target.firstLba + align - 1) / align) * align;
+        // A logical's EBR goes kDefaultEbrGap sectors before its data (the first one's at the
+        // container's start), so its data begins that far into the region, not at its edge.
+        const Lba earliest = form.logical ? target.firstLba + pt::MbrTable::kDefaultEbrGap : target.firstLba;
+        p.firstLba = ((earliest + align - 1) / align) * align;
     }
     if (!form.endText.empty()) {
         auto e = parseLba(form.endText, ss);
@@ -158,16 +203,32 @@ Expected<void> EditSession::wipeSignatures(std::optional<std::uint32_t> index) {
 
 Expected<void> EditSession::undoLast() { return m_stack->pop(); }
 void EditSession::clear() { m_stack->clear(); }
-Expected<ops::OperationStack::ApplyResult> EditSession::apply(Progress& progress) { return m_stack->apply(progress); }
+Expected<ops::OperationStack::ApplyResult> EditSession::apply(Progress& progress) {
+    auto r = m_stack->apply(progress);
+    if (!r) return r;
+    // The kernel keeps its own copy of a real disk's table; ask it to pick ours up. A refusal
+    // (a mounted partition keeps the old layout busy) is a note, not a failed apply: the bytes
+    // are on the disk and the probe reads them, only the OS's partition nodes lag behind.
+    if (m_source.kind == SourceKind::Disk) {
+        if (auto rr = platform::current().rereadPartitionTable(m_source.path); !rr)
+            r->report.addLine("note: the OS did not re-read the partition table: " + rr.error().message() + "; reconnect the disk or reboot before mounting");
+        else
+            r->report.addDetail("partition table re-read", "asked the OS");
+    }
+    return r;
+}
 Expected<void> EditSession::refresh() { return m_stack->refresh(); }
 
 std::vector<PendingRow> pendingRows(const ops::OperationStack& stack) {
     std::vector<PendingRow> out;
+    const bool mbr = stack.preview().table && stack.preview().table->type() == pt::TableType::Mbr;
     int n = 1;
     for (const auto& e : stack.pending()) {
         PendingRow r;
         r.n = n++;
         r.title = e.description;
+        // The library's text names the slot but not primary/logical; on MBR slots 5+ are logicals.
+        if (mbr && r.title.starts_with("Add partition ") && std::strtoul(r.title.c_str() + 14, nullptr, 10) >= 5) r.title.replace(0, 13, "Add logical partition");
         for (const auto& j : e.jobTitles) r.detail += (r.detail.empty() ? "" : " · ") + j;
         r.destructive = e.destructive;
         out.push_back(std::move(r));

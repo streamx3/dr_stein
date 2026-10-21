@@ -237,3 +237,139 @@ Gaps found by comparing the GPT and exFAT manifests and describe() against the s
       the table; the Topology Repair button calls `Workspace.repairSelected()` for a
       filesystem and still goes to Partitions for a table.
 
+
+## N. Dangling MBR/GPT/FAT/exFAT items (2026-10-21)
+Four agents in one pass (libstein pt, libstein fs, the app, the CLI). Codes
+named per item; everything landed has byte-patch tests on the existing
+fixtures (no new binary fixtures) and the repairable ones a round trip against
+the pristine bytes.
+- [x] N1 MBR repair: `MbrTable::repair()` rewrites the EBR chain and, when `read()`
+      stopped early, first recovers orphaned EBRs (retry the break sector, follow its
+      links, then scan the extended partition on the 1 MiB and 63-sector grids, at most
+      `kRecoveryScanBudget` = 64 MiB of reads); recovered logicals are renumbered 5.. by
+      start LBA; an empty result is refused (`InvalidFormat`, nothing written). Now
+      repairable: `mbr.ebr_chain_broken`, `mbr.ebr_unreadable`, `mbr.ebr_link_type`,
+      `mbr.ebr_chain_loop` (now fired on a real loop, not only after 128 links). New:
+      `mbr.logical_lost` (warning, repairable), `mbr.ebr_link_outside` (error, repairable).
+      `write()` keeps the chain head at the extended partition's first sector and
+      relocates an EBR that no longer sits between its predecessor and its data.
+- [x] N2 MBR raw-entry rules: a status byte other than 0x00/0x80 no longer makes LBA 0
+      "not an MBR" (`mbr.entry_status`, warning, normalised on rewrite); `mbr.chs_invalid`
+      (sector 0 in a CHS address, recomputed from LBA); `mbr.entry_stale` (type 0 slot with
+      leftovers, zeroed). An all-zero first EBR is an empty chain, not a break. `write()`
+      preserves the copy-protect word (`copyProtected()`), `createEmpty()` draws a random
+      non-zero disk signature. `describe()` flags the node a diagnostic names (entry
+      regions, EBR sectors, a placeholder for an unreadable EBR) and shows stale slots.
+- [x] N3 GPT: `gpt.pmbr_size_mismatch` (0xEE entry not LBA 1 + min(sectors-1, 0xFFFFFFFF);
+      repairable unless the MBR is hybrid, where it is reported and left alone; the
+      gpt_grown fixture shows and repairs it), `gpt.hybrid_entry_mismatch` (a hybrid entry
+      no GPT partition matches; not repairable). `createEmpty()` draws a v4 disk GUID,
+      `addPartition()` assigns a v4 unique GUID when given a nil one, `updatePartition()`
+      keeps the existing GUID on a nil update.
+- [x] N4 FAT: one `fatBitsFor()` shared by detector and reader (FAT32 layout = sectors_per_fat16
+      == 0, else 4085 decides FAT12/16; a 16-bit layout with 65525+ clusters stays FAT16 with
+      `fat.bpb_geometry`). The boot sector is one describe node tiling all 512 bytes (BPB,
+      extended BPB, boot_code, boot_signature; `fat16_boot_tail` / `fat32_boot_tail` in the
+      manifest), the backup boot sector likewise, plus a "backup FSInfo sector" node.
+      Repairable: `fat.backup_boot_mismatch`, `fat.backup_fsinfo_mismatch`,
+      `fat.fat_copies_differ` (mirroring on, compared over the entries in use, 64 MiB cap;
+      only differing sectors rewritten from the live copy). Not repairable:
+      `fat.fat_copies_not_compared`, `fat.active_fat_out_of_range` (FAT 0 read instead),
+      `fat.media_mismatch`, `fat.dirty` (one code for the EBPB bit and FAT[1]'s clean bit;
+      `info.clean` follows), `fat.hard_error`, `fat.bpb_geometry`, `fat.root_entries_unaligned`,
+      `fat.truncated`, `fat.fat_too_small`, `fat.fsinfo_bad`, `fat.fsinfo_free_count`,
+      `fat.fsinfo_next_free`, `fat.hidden_sectors_mismatch` (slice start LBA, read-only
+      wrappers looked through). The reader and allocation map follow FAT32 ext_flags to
+      the active FAT. A sector that calls itself FAT with an impossible BPB is a broken FAT
+      (described, no reader), not "nothing found".
+- [x] N5 exFAT: `exfat.geometry` (error: fat_offset < 24, FAT over the heap, FAT too short,
+      cluster_count > 2^32 - 11, heap past volume_length, root cluster outside the heap;
+      warning: whole clusters of the volume outside the heap), `exfat.truncated`,
+      `exfat.fat_copies_differ` (TexFAT second FAT, not repaired: the two may be mid-
+      transaction), `exfat.fat_copies_not_compared`. Used space is counted from the live
+      allocation bitmap when it is at most 8 MiB (percent_in_use otherwise); the reader
+      and allocation source follow volume_flags bit 0 to the live FAT/bitmap pair. The
+      trimmed fs/exfat.sparse fixture holds root, bitmap and up-case table after all, so the
+      existing test asserts on every fixture.
+- [x] N6 App: Add partition gains "Logical, inside the extended partition" (MBR with an
+      extended container only). A logical's automatic placement is the container's largest
+      gap with its data 1 MiB (`kDefaultEbrGap`) past the gap start so the library's EBR
+      lands in free space; a primary's automatic placement never lands inside the
+      container (it used to, and the library rejected the overlap). `EditSession::apply`
+      asks the OS to re-read the table after an apply on a real disk (BLKRRPART,
+      IOCTL_DISK_UPDATE_PROPERTIES, no-op on macOS); a refusal is a report note, not a
+      failed apply. Topology expert rows say "MBR sector" / "EBR @ LBA N" like the Hex
+      switcher. `drstein::test::mbrComposite()` (FAT16, exFAT, extended + ext4 logical,
+      free space inside and after) joins the GPT composite; `DRSTEIN_EXPORT_MBR_COMPOSITE`
+      exports it (181 MB). Core tests: 41 cases.
+- [x] N7 CLI: every `<image>` accepts a .sparse piece (STEINSPARSE1, or STEINPIECE1E with a
+      passphrase), opened read-only in memory at the piece's own size and sector size;
+      writing commands refuse it and point to `stein pt restore <piece> <file>`.
+      `stein pt add --logical` (MBR only: largest gap inside the extended partition, data
+      on the first 1 MiB boundary after the gap's first sector, or `--start`). Usage text
+      for `repair` and `cp` says what they do now. Run by hand: a FAT32 backup-boot byte
+      patched, `repair` restores it byte-identically; an MBR middle EBR with its signature
+      zeroed, `repair` brings all logicals back byte-identically; a middle EBR zeroed whole,
+      `repair` recovers the logicals behind it and drops the one whose only record was that
+      sector (its data stays on disk, unlisted).
+- [x] N8 Docs: README tables (libstein and app), capability matrix, roadmap M1 line,
+      `13-operations.md` §3 (ConvertTable named as non-existent and unscheduled), this list.
+
+Deliberately left, with where it would go:
+- [ ] ConvertTable (MBR ↔ GPT): no code, not scheduled, no milestone.
+- [ ] Data-moving resize / move of partitions (`ResizePartition`, `MovePartition`; M3).
+- [ ] FAT / exFAT L2: label and UUID writers, create (mkfs), check (fsck); the matrix keeps
+      them at v1/v2.
+- [ ] FAT long-name (LFN) and timestamp decoding in the Hex structure tree: the manifest's
+      `fat_dir_entry` keeps create / write / access time and date as raw u16 fields, has no
+      LFN-entry struct, and the describe tree names only the root directory's volume label
+      entry (the reader decodes long names for Browse).
+- [ ] Hex edits and repairs inside containers and volumes (LUKS payloads, LVM LVs): both
+      write back only when the node is a single-extent slice of the open device;
+      deeper nodes get "edits inside containers or volumes cannot be written back yet"
+      (`struct_inspector.cpp`) and "repairs inside ..." (`Workspace::repairSelected`).
+- [ ] libstein `src/ops/src/operation.cpp` `CreateTable::plan`: the unseeded `std::rand`
+      disk-GUID block is redundant (same GUID every run) now that `GptTable::createEmpty()`
+      draws a v4 GUID; delete it.
+- [ ] libstein `src/ops/src/operation.cpp` `AddPartition::description()`: say "Add logical
+      partition N" for `isLogical`; the app's `pendingRows()` rewrite then becomes a no-op
+      and can go.
+- [ ] A `Uuid::randomV4()` in `src/core/include/stein/core/guid.hpp`; the generator is a
+      file-local helper in `gpt_table.cpp` for now.
+- [ ] `gpt.pmbr_size_mismatch` fires (warning, not repairable) on every gdisk-style hybrid
+      MBR, since gdisk shortens the 0xEE entry on purpose; consider Info when `isHybridMbr()`.
+- [ ] Policy to confirm: when a middle EBR is unreadable or garbage and nothing is found
+      behind it, repair closes the chain at the last good EBR (the lost logical's data stays
+      on disk, unlisted); repair refuses only when the chain would end up empty.
+- [ ] Pre-existing: `MbrTable::write()` with an extended partition and no logicals writes
+      nothing inside it, so deleting the last logical leaves the old EBR chain readable; a
+      blank (signature-only) head EBR would fix it.
+- [ ] Library wording: an all-zero middle EBR is reported as "EBR at LBA N has no boot
+      signature" (`mbr.ebr_chain_broken`); "is empty" would be more precise.
+- [ ] No fixture has an unreadable sector; the unreadable-EBR tests use a test-local
+      `FaultyDevice` in `test_pt.cpp` (bad sectors fail reads until written over).
+- [ ] `fat.fat_copies_not_compared` / `exfat.fat_copies_not_compared` (over 64 MiB of FAT)
+      and exFAT bitmaps over 8 MiB are tested synthetically (BPB / bitmap entry patched on
+      the 64 MiB fixture, so `fat.truncated` fires alongside); no fixture is large enough.
+- [ ] The FAT `describe()` tree changed shape (one "boot sector" node with BPB / extended
+      BPB / boot_code / boot_signature children, "backup boot sector" likewise, new "backup
+      FSInfo sector"); nothing in the app or tools referenced the old top-level names, but
+      any golden tree dump elsewhere needs refreshing. `test_layout` has no FAT manifest
+      assertions; `fat16_boot_tail` / `fat32_boot_tail` are covered by `fs_fat.cpp`'s
+      static_asserts and the `test_fs` tree tests only.
+- [ ] `src/qt/struct_inspector.cpp` `StructInspector::write()`: after a successful commit of a
+      table structure on a real disk, call `rereadPartitionTable()` and surface a refusal as a
+      note (content repairs change no table and need nothing).
+- [ ] The re-read after apply has no test (EditSession tests run on image files; the disk
+      branch needs a real device). Verified by reading the three platform paths only.
+- [ ] Pre-existing cosmetics: the probe lists the 1 MiB EBR gap at the start of an extended
+      container as a "Free space" row (`minFreeBytes` = 1 MiB inclusive), and
+      `PartitionEditor::freeSpaceHint` counts the container's interior among its regions.
+- [ ] Pre-existing runtime warnings `ProfilesView.qml:92` / `:99` ("Unable to assign
+      [undefined] to bool") on every scripted run.
+- [ ] No automated test covers the `stein` CLI itself (no doctest target under
+      `tools/stein`); the behaviour above was verified by running the binary.
+- [ ] `--sector-size` is silently ignored for a .sparse piece (the piece carries its own).
+- [ ] `stein pt add --logical --start` into a gap whose preceding sector is another
+      logical's data relies on `MbrTable::write()` relocating the EBR to prevEnd+1; read in
+      the code, not exercised.
