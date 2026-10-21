@@ -233,6 +233,7 @@ void NodeDetailsObject::set(const core::NodeDetails& d, bool valid) {
     m_canBrowse = d.canBrowse;
     m_canInspect = d.canInspect;
     m_canRepair = d.canRepair;
+    m_contentRepairable = d.contentRepairable;
     m_canMount = d.canMount;
     m_locked = d.isLockedContainer;
     m_osDevice = qs(d.osDevice);

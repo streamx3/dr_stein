@@ -243,3 +243,26 @@ TEST_CASE("partition device names follow the platform's convention") {
             CHECK(!d.canMount);
         }
 }
+
+TEST_CASE("a filesystem that can fix its own metadata is repairable at the content level") {
+    auto dev = drstein::test::loadFixture("exfatfs/exfat.sparse");
+    std::byte one{0x81};
+    REQUIRE(dev->writeAt(0x6F, std::span<const std::byte>(&one, 1)));   // boot sector byte: checksum fails, backup drifts
+    auto tree = probe::probe(dev);
+    REQUIRE(tree);
+    auto rows = topologyRows(*tree, false);
+    REQUIRE(!rows.empty());
+    CHECK(rows[0].canRepair);
+    auto d = nodeDetails(*tree, {});
+    CHECK(d.canRepair);
+    CHECK(d.contentRepairable);
+    bool repairableIssue = false;
+    for (const auto& i : d.issues) repairableIssue = repairableIssue || (i.repairable && i.code == "exfat.boot_checksum");
+    CHECK(repairableIssue);
+    REQUIRE(tree->content);
+    REQUIRE(tree->content->repair(*dev));
+    auto again = probe::probe(dev);
+    REQUIRE(again);
+    CHECK(!nodeDetails(*again, {}).canRepair);
+}
+

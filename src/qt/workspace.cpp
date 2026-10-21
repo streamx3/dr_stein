@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include "stein/block/slice_device.hpp"
 #include "workspace.hpp"
 
 #include "drstein/core/format.hpp"
@@ -128,6 +129,43 @@ void Workspace::unmountSelected() {
         return;
     }
     refreshMounts();
+}
+
+void Workspace::repairSelected() {
+    if (!m_current) return;
+    const auto* node = core::nodeAt(m_current->tree, m_selectedPath);
+    if (!node || !node->content) return;
+    if (JobRunner::instance()->running()) {
+        Q_EMIT error(errorToVariant(stein::Error(stein::ErrorCategory::Busy, "an operation is running")));
+        return;
+    }
+    core::OpenOptions o;
+    o.writable = true;
+    auto dev = core::openDevice(m_current->descriptor, o);
+    if (!dev) {
+        Q_EMIT error(errorToVariant(dev.error()));
+        return;
+    }
+    // The node's device may be a slice of the root; repair through the same extents, writable.
+    std::shared_ptr<stein::BlockDevice> target = *dev;
+    if (node->device != m_current->device) {
+        const auto extents = node->device->extentsOnParent();
+        if (extents.size() != 1 || node->device->parent() != m_current->device) {
+            Q_EMIT error(errorToVariant(stein::Error(stein::ErrorCategory::Unsupported, "repairs inside containers or volumes cannot be written back yet")));
+            return;
+        }
+        auto slice = stein::SliceDevice::create(target, extents.front(), node->device->name());
+        if (!slice) {
+            Q_EMIT error(errorToVariant(slice.error()));
+            return;
+        }
+        target = *slice;
+    }
+    if (auto r = node->content->repair(*target); !r) {
+        Q_EMIT error(errorToVariant(r.error()));
+        return;
+    }
+    reprobe();
 }
 
 void Workspace::openImage(const QUrl& url) { openImagePath(url.isLocalFile() ? url.toLocalFile() : url.toString()); }

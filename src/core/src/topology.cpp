@@ -47,11 +47,18 @@ bool readable(const Node& node) {
     return node.content && fs::has(node.content->capabilities(), fs::Capability::Read);
 }
 
-bool repairable(const Node& node) {
-    if (!node.table) return false;
-    for (const auto& d : node.table->diagnostics())
+bool contentRepairable(const Node& node) {
+    if (!node.content) return false;
+    for (const auto& d : node.content->diagnostics())
         if (d.repairable) return true;
     return false;
+}
+
+bool repairable(const Node& node) {
+    if (node.table)
+        for (const auto& d : node.table->diagnostics())
+            if (d.repairable) return true;
+    return contentRepairable(node);
 }
 
 std::string quoted(const std::string& s) { return s.empty() ? "" : "\"" + s + "\""; }
@@ -182,7 +189,7 @@ std::vector<Issue> issuesOf(const Node& node, bool tableOnly) {
         for (const auto& d : node.table->diagnostics()) add(d.severity, d.code, d.message, d.repairable);
     if (!tableOnly) {
         if (node.content)
-            for (const auto& d : node.content->diagnostics()) add(d.severity, d.code, d.message, false);
+            for (const auto& d : node.content->diagnostics()) add(d.severity, d.code, d.message, d.repairable);
         for (const auto& n : node.notes) add(n.severity, n.code, n.message, false);   // the probe repeats the above and adds its own
     }
     std::stable_sort(out.begin(), out.end(), [](const Issue& a, const Issue& b) { return a.severity > b.severity; });
@@ -586,6 +593,7 @@ NodeDetails nodeDetails(const Node& root, const NodePath& path) {
     d.canBrowse = readable(node);
     d.canInspect = node.table || node.content;
     d.canRepair = repairable(node);
+    d.contentRepairable = contentRepairable(node);
     d.canMount = d.canBrowse && mount::Mount::available();
     d.isLockedContainer = isLocked(node);
     return d;

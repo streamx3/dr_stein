@@ -226,7 +226,14 @@ Gaps found by comparing the GPT and exFAT manifests and describe() against the s
       decoded), and the root directory's bitmap, up-case table (table checksum verified
       over the stored table), label and volume GUID entries. Bitmap, up-case table and the
       root directory's first cluster join the metadata regions.
-- [ ] M5 Still open, small: GPT header reserved tail (bytes 92 to block end) not checked;
-      attribute bits 48–63 named as Microsoft's whatever the partition type; no
-      FileSystem-level repair action (the Hex fix button is the repair path for checksums).
+- [x] M5 GPT header blocks: the reserved tail after header_size is a field, flagged when
+      not zero (`gpt.*_header_reserved`, repairable; write() zero-fills). Attribute bits
+      48–63 are named by the partition type: Microsoft (read_only, shadow_copy, hidden,
+      no_drive_letter), ChromeOS kernel (priority, tries, successful), Linux/systemd
+      (grow_file_system, read_only, no_auto); unknown set bits read "bit N".
+      FileSystem::repair(): diagnostics carry `repairable`, SimpleFileSystem takes a repair
+      hook, exFAT restores the damaged boot region from the sound one (fsck.exfat's policy,
+      VolumeFlags/PercentInUse kept) or reseals both. `stein repair` walks filesystems after
+      the table; the Topology Repair button calls `Workspace.repairSelected()` for a
+      filesystem and still goes to Partitions for a table.
 

@@ -103,6 +103,7 @@ class NodeDetailsObject : public QObject {
     Q_PROPERTY(bool canBrowse READ canBrowse NOTIFY changed)
     Q_PROPERTY(bool canInspect READ canInspect NOTIFY changed)
     Q_PROPERTY(bool canRepair READ canRepair NOTIFY changed)
+    Q_PROPERTY(bool contentRepairable READ contentRepairable NOTIFY changed)
     Q_PROPERTY(bool canMount READ canMount NOTIFY changed)
     Q_PROPERTY(bool isLockedContainer READ isLockedContainer NOTIFY changed)
     Q_PROPERTY(bool valid READ valid NOTIFY changed)
@@ -129,6 +130,7 @@ public:
     bool canBrowse() const { return m_canBrowse; }
     bool canInspect() const { return m_canInspect; }
     bool canRepair() const { return m_canRepair; }
+    bool contentRepairable() const { return m_contentRepairable; }
     bool canMount() const { return m_canMount; }
     bool isLockedContainer() const { return m_locked; }
     bool valid() const { return m_valid; }
@@ -141,6 +143,7 @@ private:
     QVariantList m_rows, m_issues, m_subvolumes;
     double m_usedFraction = -1;
     bool m_canBrowse = false, m_canInspect = false, m_canRepair = false, m_canMount = false, m_locked = false, m_valid = false;
+    bool m_contentRepairable = false;
 };
 
 } // namespace drstein::ui

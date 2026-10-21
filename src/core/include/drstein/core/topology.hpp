@@ -72,6 +72,7 @@ struct NodeDetails {
     std::string usedLabel, usedText;              // "ext4 used", "243.9 GB of 399.9 GB"
     std::vector<stein::fs::SubvolumeInfo> subvolumes;
     bool canBrowse = false, canInspect = false, canRepair = false, canMount = false, isLockedContainer = false;
+    bool contentRepairable = false;          // the filesystem itself can fix its metadata (vs the partition table)
     std::string osDevice, mountpoint;             // see TopologyRow
 };
 // Fills osDevice / mountpoint on partition rows of a real disk from the OS mount table.

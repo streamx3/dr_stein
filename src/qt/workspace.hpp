@@ -113,6 +113,7 @@ public:
     Q_INVOKABLE void setRestoreTarget(const QString& sourceId);   // "" clears the red mark
     // The selected partition's OS mount, if any, is unmounted through the platform.
     Q_INVOKABLE void unmountSelected();
+    Q_INVOKABLE void repairSelected();   // the selected filesystem fixes its own metadata (checksums, backup copies)
     Q_INVOKABLE void refreshMounts();
     // Starts a second copy of the app with root / Administrator rights through the
     // OS's own prompt (macOS: administrator authorisation; Linux: pkexec; Windows:
