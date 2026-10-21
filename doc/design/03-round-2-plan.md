@@ -210,3 +210,23 @@ On Linux the kernel scans the partition table when a disk appears, so `/dev/sda1
 `p` separator appears when the disk name ends in a digit. Windows has no per-partition
 device file; volumes are `\\.\C:` or `\\?\Volume{GUID}` and are reached through
 the disk's offsets, which is what libstein does.
+
+## M. Structure coverage (2026-10-21)
+Gaps found by comparing the GPT and exFAT manifests and describe() against the specs.
+- [x] M1 exFAT boot checksum: sector 11 verified over sectors 0–10 (VolumeFlags and
+      PercentInUse skipped) and shown as one crc32 field as wide as the sector, so the
+      Hex view's "Fix checksums" refills it with the repeated value. Diagnostic
+      `exfat.boot_checksum` (error). The boot sector manifest now covers all 512 bytes.
+- [x] M2 exFAT backup boot region (sectors 12–23) described like the main one, its
+      checksum verified, and compared with the main copy (`exfat.backup_boot_mismatch`).
+- [x] M3 GPT: both entry arrays are kept as read and each is described from its own
+      bytes; a copy whose CRC fails is flagged, a backup that drifts from the primary
+      warns. Every used slot is listed, not only the partitions the table adopted.
+- [x] M4 exFAT extended boot sectors (signatures), OEM parameters (flash parameters
+      decoded), and the root directory's bitmap, up-case table (table checksum verified
+      over the stored table), label and volume GUID entries. Bitmap, up-case table and the
+      root directory's first cluster join the metadata regions.
+- [ ] M5 Still open, small: GPT header reserved tail (bytes 92 to block end) not checked;
+      attribute bits 48–63 named as Microsoft's whatever the partition type; no
+      FileSystem-level repair action (the Hex fix button is the repair path for checksums).
+
