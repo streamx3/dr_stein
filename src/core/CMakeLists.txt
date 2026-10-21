@@ -34,6 +34,7 @@ if(DRSTEIN_BUILD_TESTS)
     tests/test_profiles.cpp
     tests/test_browse.cpp
     tests/test_fixture_export.cpp
+    tests/test_luks.cpp
   )
   target_include_directories(drstein_core_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/libstein/third_party/doctest)
