@@ -183,3 +183,51 @@ TEST_CASE("structures round-trip through a sparse piece") {
     REQUIRE(editor.restoreFrom(tmp.file("header.sparse")));
     CHECK(editor.dirtyBytes() == 0);
 }
+
+TEST_CASE("exFAT: the boot checksum is a sector-wide field; setting it refills the sector") {
+    auto dev = drstein::test::loadFixture("fs/exfat.sparse");
+    auto tree = probed(dev);
+    auto refs = structuresFor(tree, {});
+    const auto* region = byLabelPart(refs, "main boot region");
+    REQUIRE(region);
+    CHECK(region->source == StructSource::Content);
+    CHECK(region->validity.starts_with("all "));
+    StructEditor ed(dev, *region);
+    REQUIRE(ed.load());
+    auto fields = fieldRows(ed.current());
+    const auto* drive = byName(fields, "drive_select");
+    const auto* checksum = byName(fields, "checksum");
+    REQUIRE(drive);
+    REQUIRE(checksum);
+    CHECK(checksum->type == stein::layout::FieldType::Crc32);
+    CHECK(checksum->size == 512);
+    CHECK(checksum->editable);
+    CHECK(checksum->message.empty());
+
+    // Edit a boot-sector byte: the checksum field (in another sector of the same region) flags the fix.
+    REQUIRE(ed.setField(*drive, "129"));
+    fields = fieldRows(ed.current());
+    checksum = byName(fields, "checksum");
+    REQUIRE(checksum);
+    CHECK(checksum->validity == stein::layout::Validity::Error);
+    const auto at = checksum->message.find("computed 0x");
+    REQUIRE(at != std::string::npos);
+    const std::string value = checksum->message.substr(at + 9);
+    REQUIRE(ed.setField(*checksum, value));
+    fields = fieldRows(ed.current());
+    checksum = byName(fields, "checksum");
+    REQUIRE(checksum);
+    CHECK(checksum->validity == stein::layout::Validity::Ok);
+    CHECK(ed.current().validity.starts_with("all "));
+    // Every 32-bit word of the sector carries the value.
+    const auto bytes = ed.bytes();
+    const std::size_t start = static_cast<std::size_t>(checksum->offset - ed.current().shownOffset);
+    const std::uint32_t expected = static_cast<std::uint32_t>(std::stoul(value, nullptr, 16));
+    for (std::size_t i = 0; i < 512; i += 4) {
+        std::uint32_t w = 0;
+        for (std::size_t k = 4; k-- > 0;) w = (w << 8) | std::to_integer<std::uint32_t>(bytes[start + i + k]);
+        CHECK(w == expected);
+    }
+    CHECK(ed.dirtyBytes() > 1);   // the drive_select byte and most of the checksum sector
+}
+

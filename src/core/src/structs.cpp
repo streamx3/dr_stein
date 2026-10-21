@@ -186,6 +186,7 @@ std::vector<StructRef> structuresFor(const probe::Node& root, const NodePath& pa
 namespace {
 
 bool editableType(const layout::Node& n) {
+    if (n.type == FieldType::Crc32 && n.size > 4 && n.size % 4 == 0) return true;   // a repeated checksum sector
     if (n.isStruct || n.size == 0 || n.size > 64) return false;
     switch (n.type) {
     case FieldType::Bytes: return n.size <= 16;
@@ -247,6 +248,12 @@ Expected<std::vector<std::byte>> encodeFieldValue(const FieldRow& f, std::span<c
         else if (isSigned(f.type)) v = static_cast<std::uint64_t>(std::strtoll(text.c_str(), &end, 10));
         else v = std::strtoull(text.c_str(), &end, 10);
         if (!end || *end != 0) return fail(ErrorCategory::InvalidArgument, "not a number: " + text);
+        if (f.type == FieldType::Crc32 && f.size > 4 && f.size % 4 == 0) {
+            // A checksum as wide as a sector is the 32-bit value repeated to fill it (exFAT's boot checksum).
+            if (v >> 32) return fail(ErrorCategory::InvalidArgument, text + " does not fit in 32 bits");
+            for (std::size_t i = 0; i < out.size(); i += 4) storeLe(std::span<std::byte>(out).subspan(i, 4), v);
+            return out;
+        }
         if (f.size < 8 && !isSigned(f.type) && (v >> (8 * f.size)) != 0) return fail(ErrorCategory::InvalidArgument, text + " does not fit in " + std::to_string(f.size) + " bytes");
         if (fieldIsBigEndian(f, current)) storeBe(out, v);
         else storeLe(out, v);

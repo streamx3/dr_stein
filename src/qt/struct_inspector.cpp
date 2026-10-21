@@ -265,8 +265,12 @@ int StructInspector::dirtyCount() const { return m_editor ? static_cast<int>(m_e
 
 QString StructInspector::dirtyRanges() const {
     if (!m_editor) return {};
+    // A refilled checksum sector dirties every other word; list a few ranges, then the count.
+    const auto regions = m_editor->dirtyRegions();
     QStringList parts;
-    for (const auto& r : m_editor->dirtyRegions()) parts << qs(core::hexRangeText({m_editor->current().displayBase + r.offset, r.length}));
+    for (std::size_t i = 0; i < regions.size() && i < 6; ++i)
+        parts << qs(core::hexRangeText({m_editor->current().displayBase + regions[i].offset, regions[i].length}));
+    if (regions.size() > 6) parts << QString("+%1 more").arg(regions.size() - 6);
     return parts.join(" · ");
 }
 
