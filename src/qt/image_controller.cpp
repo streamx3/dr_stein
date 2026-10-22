@@ -485,7 +485,9 @@ void ImageController::verify(const QString& passphrase) {
     form.level = m_verifyLevel;
     form.passphrase = ss(passphrase);
     if (form.passphrase.empty()) {
-        const auto list = Workspace::instance()->passphrasesFor(c->descriptor.id);
+        // The image's own passphrase first; the merged list only when none was kept apart.
+        auto list = Workspace::instance()->imagePassphrasesFor(c->descriptor.id);
+        if (list.empty()) list = Workspace::instance()->passphrasesFor(c->descriptor.id);
         if (!list.empty()) form.passphrase = list.front();
     }
     JobRunner::instance()->start(

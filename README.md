@@ -15,9 +15,9 @@ Seven views, translated from the Claude Design prototype in
 
 | View | What it does |
 |---|---|
-| Topology | byte-proportional bar, the probe tree (table, partitions, containers, volumes), a details card with usage, diagnostics and actions |
+| Topology | byte-proportional bar, the probe tree (table, partitions, containers, volumes), a details card with usage, diagnostics and actions; a locked LUKS container unlocks in place (the passphrase stays in memory for the session, the unlocked master key is reused by later probes) and its payload appears as a row to browse or mount; a container the library cannot open says why instead |
 | Hex | every on-disk structure the library parses (GPT headers and entries, superblocks, boot sectors) next to its bytes; field edits preview on an overlay, checksums can be recomputed, nothing is written before you say so |
-| Browse | files inside ext4, FAT, exFAT, NTFS, HFS+, APFS, XFS, btrfs, ISO, UDF, SquashFS, EROFS and F2FS, in images, LUKS containers or LVM volumes, without mounting; preview, hash, copy out, or mount it for the OS |
+| Browse | files inside ext4, FAT, exFAT, NTFS, HFS+, APFS, XFS, btrfs, ISO, UDF, SquashFS, EROFS and F2FS, in images, LUKS containers or LVM volumes, without mounting; preview, hash, copy out, or mount it for the OS under a mount point named after the volume label, with Reveal in Finder / Show in Explorer |
 | Image | create `.stein` or raw images of a whole device or of one partition (used blocks only, LZ4, split, encrypted); partition images record where they came from and restore into a partition; restore any supported container to a disk; verify; manage key slots |
 | Profiles | the dr_stein one-button case: a disk identity plus an image, three buttons, all dry-runnable |
 | Tools | surface scan (read-only) and the fake-flash capacity test (destructive, confirmed by typing the device name) |
@@ -78,7 +78,10 @@ sudo "build/debug/src/app/Dr Stein.app/Contents/MacOS/Dr Stein"
 ```
 
 Image files (`.stein`, raw, split raw, qcow2, VHD, VHDX, VMDK, VDI, E01, DMG)
-need no privileges and can be passed on the command line.
+need no privileges and can be passed on the command line. The in-app relaunch
+carries the selected source and view along (`DRSTEIN_SOURCE`, `DRSTEIN_VIEW`)
+and asks once for the passphrase of the first locked container it finds;
+passphrases never enter the environment.
 
 ## Layout
 
@@ -106,6 +109,7 @@ DRSTEIN_SCRIPT="Workspace.view='tools'; toolsView.tools.surfaceScan()" DRSTEIN_D
   DRSTEIN_SCREENSHOT=/tmp/scan.png "Dr Stein" disk.img
 DRSTEIN_SCHEME=light DRSTEIN_PALETTE=blue "Dr Stein"     # teal | blurple | blue | grey
 DRSTEIN_CHROME=native "Dr Stein"                          # system title bar for this run
+DRSTEIN_SOURCE=image:/abs/path/disk.img "Dr Stein" disk.img other.img   # select that source at startup and ask once for its first locked container (what the elevated relaunch sets)
 ```
 
 `DRSTEIN_EXPORT_COMPOSITE=/tmp/disk.img build/debug/src/core/drstein_core_tests -tc="export*"`
@@ -120,11 +124,18 @@ Every view is wired to the library and exercised against image files:
 imaging (create, verify, restore byte-identical), partition editing with
 apply on GPT and MBR (logical partitions included), repair of GPT copies, the
 MBR EBR chain, FAT backup boot / FSInfo / FAT copies and exFAT boot regions,
-hex edits with checksum repair, browsing with preview, hash and copy out, NFS
-loopback mounts on macOS, surface scans, profile backups. The core tests (41
-cases) run on a GPT and an MBR composite disk built from libstein's fixtures.
-Written but not covered by a test: the OS re-read of the table after an apply
-on a real disk (tests use image sources). Not done yet: a privileged helper
+hex edits with checksum repair, browsing with preview, hash and copy out,
+LUKS1/2 unlock (a wrong passphrase is reported and forgotten; Cancel stops the
+key derivation; the master key is cached per source for the session so
+re-probes skip it; a container the library cannot open says why; VeraCrypt
+trial decryption only on "Try VeraCrypt…"), NFS loopback mounts on macOS named
+after the volume label with Reveal in Finder and external unmounts noticed
+within 2 s, surface scans, profile backups. The core tests (53 cases) run on a
+GPT and an MBR composite disk built from libstein's fixtures and on its LUKS
+fixtures. Written but not covered by a test: the OS re-read of the table after
+an apply on a real disk, and the elevated relaunch landing on a disk source
+(tests and scripted runs use image sources). The LUKS work and what is left of
+it is in `doc/design/06-luks-on-macos.md`. Not done yet: a privileged helper
 (the library's plan), SMART, hex edits and repairs inside containers and
 volumes, data-moving resize/move. Linux builds and
 runs on Mint 22.1 / GCC 13 / Qt 6.11 (see `doc/design/05-linux-bringup.md`);

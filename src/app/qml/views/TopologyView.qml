@@ -8,8 +8,11 @@ import DrStein
 
 Item {
     id: view
-    signal unlockRequested()
+    signal unlockRequested(string what)       // what the passphrase dialog names: "partition 2 on disk5 (LUKS2)"
+    signal veraCryptRequested(string what)    // one probe with VeraCrypt trial decryption, passphrase asked the same way
     signal mountRequested()
+    // What exposes the filesystem to the OS on this platform.
+    readonly property string mountBackend: Workspace.platformName === "macos" ? "NFS loopback" : Workspace.platformName === "windows" ? "WinFsp" : "FUSE"
 
     EmptyState {
         anchors.fill: parent
@@ -42,7 +45,7 @@ Item {
             StButton {
                 visible: Workspace.hasCurrentError && Workspace.currentError.needsElevation === true && Workspace.imageLocked
                 text: "Enter passphrase…"; variant: "primary"; small: true
-                onClicked: view.unlockRequested()
+                onClicked: view.unlockRequested(Workspace.unlockLabel())
             }
         ]
     }
@@ -291,9 +294,16 @@ Item {
                         ToolTip.text: Workspace.details.contentRepairable ? "The filesystem rewrites its own checksums and backup copies; data is untouched" : "Rebuild the partition table's damaged copies in the Partitions view"
                         onClicked: { if (Workspace.details.contentRepairable) Workspace.repairSelected(); else Workspace.view = "partitions" }
                     }
-                    StButton { visible: Workspace.details.mountpoint.length === 0; text: "Mount"; small: true; enabled: Workspace.details.canMount && !JobRunner.running; onClicked: view.mountRequested(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: "Mount it read-only for the OS (FUSE); the mount lasts until you unmount it or quit" }
-                    StButton { visible: Workspace.details.mountpoint.length > 0; text: "Unmount " + Workspace.details.mountpoint; small: true; icon_: "eject"; enabled: !JobRunner.running; onClicked: Workspace.unmountSelected() }
-                    StButton { text: "Unlock…"; small: true; icon_: "unlock"; visible: Workspace.details.isLockedContainer; onClicked: view.unlockRequested() }
+                    StButton { visible: Workspace.details.mountpoint.length === 0; text: "Mount"; small: true; enabled: Workspace.details.canMount && !JobRunner.running; onClicked: view.mountRequested(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: "Mount it read-only for the OS through " + view.mountBackend + ", at a folder named after its label; the mount lasts until you unmount it or quit" }
+                    StButton { visible: Workspace.details.mountpoint.length > 0; text: "Unmount"; small: true; icon_: "eject"; enabled: !JobRunner.running; onClicked: Workspace.unmountSelected(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: "Unmount " + Workspace.details.mountpoint }
+                    StButton { visible: Workspace.details.mountpoint.length > 0; text: Workspace.revealLabel; small: true; icon_: "folder"; onClicked: Workspace.revealPath(Workspace.details.mountpoint) }
+                    StButton { text: "Unlock…"; small: true; icon_: "unlock"; visible: Workspace.details.isLockedContainer; onClicked: view.unlockRequested(Workspace.unlockLabel()) }
+                    StButton {
+                        text: "Try VeraCrypt…"; small: true; icon_: "key"; visible: Workspace.tcryptCandidate; enabled: !JobRunner.running
+                        onClicked: view.veraCryptRequested(Workspace.unlockLabel())
+                        ToolTip.visible: hovered; ToolTip.delay: 600
+                        ToolTip.text: "VeraCrypt and TrueCrypt volumes carry no signature, so the header is decrypted by trial: up to 500 000 PBKDF2 rounds for each of nine hash and cipher candidates, several minutes of CPU for one passphrase even on a small region. Runs for this one probe only, on this source."
+                    }
                     StButton { text: "Compute usage"; variant: "ghost"; small: true; visible: !Workspace.details.hasUsed && Workspace.details.canInspect && Workspace.details.kindLabel !== "Device" && Workspace.details.kindLabel !== "Metadata" && Workspace.details.kindLabel !== "Free"; enabled: !JobRunner.running; onClicked: Workspace.computeUsage() }
                 }
             }

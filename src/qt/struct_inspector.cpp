@@ -3,6 +3,7 @@
 
 #include "drstein/core/format.hpp"
 #include "drstein/core/opened.hpp"
+#include "drstein/core/partition_edit.hpp"
 #include "job_runner.hpp"
 #include "stein/block/slice_device.hpp"
 #include "stein/platform/platform.hpp"
@@ -383,9 +384,22 @@ QVariantMap StructInspector::write() {
         target = *slice;
     }
     if (auto r = m_editor->commitTo(*target); !r) return errorToVariant(r.error());
-    // A table written to a real disk is not seen by the OS until it re-reads it.
-    if (d.kind == core::SourceKind::Disk && ref.source == core::StructSource::Table)
-        if (auto rr = stein::platform::current().rereadPartitionTable(d.path); !rr) w->reportError(rr.error());
+    // A table written to a real disk is not seen by the OS until it re-reads it. The write is done
+    // whatever the answer: a refusal (Linux, a mounted partition keeps the old layout busy) only
+    // means the OS's partition nodes lag, so it is told as a note; an error toast here would read
+    // as a failed write. On macOS the call is a no-op and the kernel re-reads when the writable
+    // handle below closes, at the end of this function.
+    if (d.kind == core::SourceKind::Disk && ref.source == core::StructSource::Table) {
+        auto& platform = stein::platform::current();
+        if (auto rr = platform.rereadPartitionTable(d.path); !rr) {
+            QVariantMap note;
+            note["title"] = "Partition table written";
+            note["message"] = qs(core::tableRereadNote(platform.name(), rr).text);
+            note["hint"] = "";
+            note["severity"] = "info";
+            Q_EMIT w->error(note);
+        }
+    }
     refreshViews();
     Q_EMIT changed();
     Q_EMIT written();

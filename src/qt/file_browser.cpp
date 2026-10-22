@@ -579,8 +579,13 @@ void FileBrowser::mount() {
         w->reportError(reader.error());
         return;
     }
-    const std::string what = ss(title()) + " (" + ss(fsName()) + ") in " + w->current()->descriptor.name;
-    auto rec = w->mounts().mount(std::move(*reader), what);
+    core::MountRequest req;
+    req.what = ss(title()) + " (" + ss(fsName()) + ") in " + w->current()->descriptor.name;
+    // The directory (and, on macOS, the Finder volume) takes the filesystem's label, else the node's name.
+    req.name = node->content->info().label.empty() ? ss(title()) : node->content->info().label;
+    req.sourceId = w->current()->descriptor.id;
+    req.nodePath = m_path;
+    auto rec = w->mounts().mount(std::move(*reader), std::move(req));
     if (!rec) {
         w->reportError(rec.error());
         return;

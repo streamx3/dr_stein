@@ -54,6 +54,19 @@ Item {
                     }
                     Text { Layout.fillWidth: true; text: toast.modelData.message; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textBright; wrapMode: Text.WordWrap }
                     Text { Layout.fillWidth: true; visible: toast.modelData.hint !== undefined && toast.modelData.hint.length > 0; text: toast.modelData.hint !== undefined ? toast.modelData.hint : ""; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WordWrap }
+                    // One optional action: a JS callback (`action`) from QML, or a directory to show
+                    // in the file manager (`actionPath`) from C++, labelled by `actionLabel`.
+                    StButton {
+                        visible: toast.modelData.actionLabel !== undefined && toast.modelData.actionLabel.length > 0
+                        text: visible ? toast.modelData.actionLabel : ""
+                        small: true; icon_: "folder"
+                        Layout.topMargin: 4
+                        onClicked: {
+                            if (typeof toast.modelData.action === "function") toast.modelData.action()
+                            else if (toast.modelData.actionPath !== undefined) Workspace.revealPath(toast.modelData.actionPath)
+                            host.dismiss(toast.index)
+                        }
+                    }
                 }
             }
         }

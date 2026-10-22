@@ -5,6 +5,7 @@
 #include "drstein/core/format.hpp"
 #include "job_runner.hpp"
 #include "settings.hpp"
+#include "stein/core/strings.hpp"
 #include "util.hpp"
 
 #include <QCoreApplication>
@@ -16,8 +17,11 @@
 #include <QProcessEnvironment>
 #include <QStandardPaths>
 #include <QSysInfo>
+#include <QTimer>
 
 #include <cerrno>
+#include <set>
+#include <utility>
 #if defined(Q_OS_WIN)
 #include <windows.h>
 #include <shellapi.h>
@@ -27,9 +31,68 @@ namespace drstein::ui {
 
 namespace {
 Workspace* g_instance = nullptr;
+
+// A secret leaves memory overwritten, not merely freed: the heap (or the string's own
+// small buffer) would otherwise keep it until reused. The volatile pointer stops the
+// compiler from dropping stores to a string it sees dying.
+void wipe(std::string& s) {
+    volatile char* p = s.data();
+    for (std::size_t i = 0; i < s.size(); ++i) p[i] = 0;
+    s.clear();
+    s.shrink_to_fit();
 }
 
+void wipeAll(std::vector<std::string>& list) {
+    for (auto& s : list) wipe(s);
+    list.clear();
+}
+
+void addUnique(std::vector<std::string>& list, const std::string& p) {
+    for (const auto& x : list)
+        if (x == p) return;
+    list.push_back(p);
+}
+
+void forgetOne(std::vector<std::string>& list, const std::string& p) {
+    for (auto it = list.begin(); it != list.end(); ++it)
+        if (*it == p) {
+            wipe(*it);
+            list.erase(it);
+            return;
+        }
+}
+
+std::string uuidOf(const stein::probe::Node& node) { return node.content ? node.content->info().uuid : std::string{}; }
+
+// Depth-first search for the node whose content carries `uuid`; fills `path` on success.
+const stein::probe::Node* findByUuid(const stein::probe::Node& node, const std::string& uuid, core::NodePath& path) {
+    if (uuid.empty()) return nullptr;
+    if (uuidOf(node) == uuid) return &node;
+    for (std::size_t i = 0; i < node.children.size(); ++i) {
+        path.push_back(static_cast<int>(i));
+        if (const auto* found = findByUuid(node.children[i], uuid, path)) return found;
+        path.pop_back();
+    }
+    return nullptr;
+}
+
+QVariantMap toast(const QString& title, const QString& message, const QString& severity) {
+    QVariantMap e;
+    e["title"] = title;
+    e["message"] = message;
+    e["hint"] = "";
+    e["severity"] = severity;
+    return e;
+}
+} // namespace
+
 Workspace::Workspace(QObject* parent) : QObject(parent) {
+    // The singleton's destructor is never reached through Qt's teardown; quitting is the
+    // moment the passphrases must go.
+    if (auto* app = QCoreApplication::instance()) connect(app, &QCoreApplication::aboutToQuit, this, [this] { clearPassphrases(); });
+    // An elevated relaunch names the source to come back to; main() has had its turn with the
+    // command line by the time the event loop runs this.
+    QTimer::singleShot(0, this, [this] { restoreRelaunchSelection(); });
     connect(JobRunner::instance(), &JobRunner::runningChanged, this, &Workspace::uiLockedChanged);
     connect(Settings::instance(), &Settings::interactDuringJobsChanged, this, &Workspace::uiLockedChanged);
     connect(Settings::instance(), &Settings::expertModeChanged, this, [this] {
@@ -43,6 +106,8 @@ Workspace::Workspace(QObject* parent) : QObject(parent) {
     }
     refresh();
 }
+
+Workspace::~Workspace() { clearPassphrases(); }
 
 Workspace* Workspace::instance() {
     if (!g_instance) g_instance = new Workspace();
@@ -59,6 +124,10 @@ QVariantMap Workspace::errorToVariantPublic(const stein::Error& e) { return erro
 
 bool Workspace::elevated() const { return core::isElevated(); }
 QString Workspace::platformName() const { return qs(stein::platform::current().name()); }
+QString Workspace::revealLabel() const {
+    const QString os = QSysInfo::productType();
+    return os == "macos" ? "Reveal in Finder" : os == "windows" ? "Show in Explorer" : "Show in file manager";
+}
 QString Workspace::version() const { return QStringLiteral(DRSTEIN_VERSION_STRING); }
 
 void Workspace::setView(const QString& v) {
@@ -76,6 +145,9 @@ void Workspace::setBusy(bool b) {
 // ---- sources ---------------------------------------------------------------------
 
 void Workspace::refresh() {
+    std::set<std::string> knownDisks;
+    for (const auto& s : m_sources.items())
+        if (s.kind == core::SourceKind::Disk) knownDisks.insert(s.id);
     std::vector<core::SourceDescriptor> items;
     auto disks = core::listDisks(stein::platform::current());
     if (disks) items = std::move(*disks);
@@ -83,6 +155,10 @@ void Workspace::refresh() {
     for (const auto& img : m_images) items.push_back(img);
     m_sources.setItems(std::move(items));
     m_sources.setSelected(m_selectedSourceId);
+    // A disk that is gone (unplugged) takes its passphrases with it; plugging it back in asks again.
+    if (disks)
+        for (const auto& id : knownDisks)
+            if (!m_sources.find(id)) forgetPassphrases(id);
     // The open source may have vanished (unplugged); keep showing it until the user picks another.
     // A refresh also re-reads the open disk: its mounts and its table may have changed.
     if (m_current && !JobRunner::instance()->running()) reprobe();
@@ -113,9 +189,15 @@ void Workspace::refreshMounts() {
 }
 
 void Workspace::unmountSelected() {
-    if (!m_current || !m_current->descriptor.disk) return;
+    if (!m_current) return;
     const QString mp = m_details.mountpoint();
     if (mp.isEmpty()) return;
+    if (auto own = m_mounts.findByMountpoint(std::filesystem::path(ss(mp)))) {
+        if (auto r = m_mounts.unmount(own->id); !r) Q_EMIT error(errorToVariant(r.error()));
+        refreshMounts();
+        return;
+    }
+    if (!m_current->descriptor.disk) return;
     stein::platform::MountInfo info;
     for (const auto& m : m_osMounts)
         if (qs(m.mountpoint) == mp) {
@@ -172,7 +254,7 @@ void Workspace::openImage(const QUrl& url) { openImagePath(url.isLocalFile() ? u
 
 void Workspace::addImagePath(const QString& path) {
     const std::string id = "image:" + ss(QFileInfo(path).absoluteFilePath());
-    const auto known = passphrasesFor(id);
+    const auto known = imagePassphrasesFor(id);
     auto d = core::describeImageFile(ss(path), known.empty() ? std::string{} : known.front());
     if (!d) {
         Q_EMIT error(errorToVariant(d.error()));
@@ -209,12 +291,59 @@ void Workspace::closeImage(const QString& idIn) {
             break;
         }
     m_sources.remove(id);
+    forgetPassphrases(id);
     if (m_currentId == id) setCurrent(std::nullopt, {}, {});
 }
 
-std::vector<std::string> Workspace::passphrasesFor(const std::string& id) const {
+std::vector<std::string> Workspace::containerPassphrasesFor(const std::string& id) const {
     auto it = m_passphrases.find(id);
     return it == m_passphrases.end() ? std::vector<std::string>{} : it->second;
+}
+
+std::vector<std::string> Workspace::imagePassphrasesFor(const std::string& id) const {
+    auto it = m_imagePassphrases.find(id);
+    return it == m_imagePassphrases.end() ? std::vector<std::string>{} : it->second;
+}
+
+std::vector<std::string> Workspace::passphrasesFor(const std::string& id) const {
+    std::vector<std::string> out = imagePassphrasesFor(id);
+    for (const auto& p : containerPassphrasesFor(id)) addUnique(out, p);
+    return out;
+}
+
+core::MasterKeys Workspace::masterKeysFor(const std::string& id) const {
+    auto it = m_masterKeys.find(id);
+    return it == m_masterKeys.end() ? core::MasterKeys{} : it->second;
+}
+
+void Workspace::forgetPassphrases(const std::string& id) {
+    if (auto it = m_passphrases.find(id); it != m_passphrases.end()) {
+        wipeAll(it->second);
+        m_passphrases.erase(it);
+    }
+    if (auto it = m_imagePassphrases.find(id); it != m_imagePassphrases.end()) {
+        wipeAll(it->second);
+        m_imagePassphrases.erase(it);
+    }
+    if (auto it = m_masterKeys.find(id); it != m_masterKeys.end()) {
+        core::wipeMasterKeys(it->second);
+        m_masterKeys.erase(it);
+    }
+    if (m_pendingUnlock && m_pendingUnlock->sourceId == id) {
+        wipe(m_pendingUnlock->passphrase);
+        m_pendingUnlock.reset();
+    }
+}
+
+void Workspace::clearPassphrases() {
+    for (auto& [id, list] : m_passphrases) wipeAll(list);
+    m_passphrases.clear();
+    for (auto& [id, list] : m_imagePassphrases) wipeAll(list);
+    m_imagePassphrases.clear();
+    for (auto& [id, keys] : m_masterKeys) core::wipeMasterKeys(keys);
+    m_masterKeys.clear();
+    if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
+    m_pendingUnlock.reset();
 }
 
 void Workspace::select(const QString& idIn) {
@@ -235,28 +364,68 @@ void Workspace::openSourceAsync(const std::string& id, bool silentOnError) {
     if (!d) return;
     core::SourceDescriptor desc = *d;
     core::OpenOptions options;
-    options.passphrases = passphrasesFor(id);
-    auto result = std::make_shared<stein::Expected<core::OpenedSource>>(stein::fail(stein::ErrorCategory::Internal, "not run"));
+    options.passphrases = containerPassphrasesFor(id);
+    options.imagePassphrases = imagePassphrasesFor(id);
+    options.tcrypt = std::exchange(m_tcryptOnce, false);   // one probe, then back to the cheap default
+    options.masterKeys = masterKeysFor(id);                 // unlocked once this session: the probe skips the KDF
+    // What the job hands back: the open itself, the keys the passphrases produced on the way (for the
+    // cache) and whether the job's Cancel reached a key derivation. Written on the job thread, read in
+    // the done handler once the thread has posted it.
+    struct ProbeRun {
+        stein::Expected<core::OpenedSource> opened = stein::fail(stein::ErrorCategory::Internal, "not run");
+        core::MasterKeys unlocked;
+        bool cancelled = false;
+    };
+    auto run = std::make_shared<ProbeRun>();
     setBusy(true);
     const bool started = JobRunner::instance()->start(
         "Probing " + qs(desc.name), "probe",
-        [desc, options, result](stein::Progress& progress, stein::Report& report) -> stein::Expected<void> {
+        [desc, options, run](stein::Progress& progress, stein::Report& report) mutable -> stein::Expected<void> {
             progress.setPhase("Probing", 0, "steps");
             report.start();
-            *result = core::openSource(desc, options);
-            if (!*result) {
-                report.addLine(result->error().toString());
+            // The job's Cancel reaches the KDF through this poll: the container is left locked and the
+            // probe finishes the rest of the device, so there is still a tree to show.
+            options.cancelled = [&progress, run] {
+                if (!progress.isCancelled()) return false;
+                run->cancelled = true;
+                return true;
+            };
+            options.onUnlocked = [run](const std::string& uuid, const std::vector<std::uint8_t>& key) { run->unlocked[uuid] = key; };
+            run->opened = core::openSource(desc, options);
+            // This closure outlives the job (the thread object stays until the next one starts).
+            core::wipeMasterKeys(options.masterKeys);
+            wipeAll(options.passphrases);
+            wipeAll(options.imagePassphrases);
+            if (!run->opened) {
+                report.addLine(run->opened.error().toString());
                 report.finish(stein::ReportStatus::Error);
-                return stein::fail(result->error());
+                return stein::fail(run->opened.error());
             }
-            report.addDetail("device", (*result)->device->name());
+            report.addDetail("device", run->opened->device->name());
             report.finish(stein::ReportStatus::Success);
             return {};
         },
-        [this, id, result, silentOnError](bool ok, const stein::Error& err) {
+        [this, id, run, silentOnError](bool ok, const stein::Error& err) {
             setBusy(false);
-            if (ok) setCurrent(std::move(**result), {}, id);
-            else {
+            // Keys the passphrases produced join the session cache: from here on this source re-probes
+            // without the KDF. A source that vanished meanwhile (unplugged mid-probe) keeps nothing.
+            if (m_sources.find(id)) {
+                auto& cache = m_masterKeys[id];
+                for (auto& [uuid, key] : run->unlocked) {
+                    if (auto it = cache.find(uuid); it != cache.end()) core::wipeMasterKey(it->second);
+                    cache[uuid] = std::move(key);
+                }
+            }
+            core::wipeMasterKeys(run->unlocked);
+            const bool cancelled = run->cancelled;
+            if (ok) {
+                setCurrent(std::move(*run->opened), {}, id);
+                finishPendingUnlock(true, cancelled);
+                if (!m_relaunchSource.empty() && m_relaunchSource == id) {
+                    m_relaunchSource.clear();
+                    promptAfterRelaunch();
+                }
+            } else {
                 QVariantMap e = errorToVariant(err);
                 // macOS answers EACCES when the user id may not open the node and EPERM when
                 // the privacy system (TCC) vetoed it; the latter needs Full Disk Access, not root.
@@ -275,12 +444,116 @@ void Workspace::openSourceAsync(const std::string& id, bool silentOnError) {
                     e["needsElevation"] = false;
                 }
                 setCurrent(std::nullopt, e, id);
+                finishPendingUnlock(false, cancelled);
                 if (silentOnError) return;
                 if (err.category() == stein::ErrorCategory::Permission && m_sources.find(id) && m_sources.find(id)->image && m_sources.find(id)->image->encrypted)
-                    Q_EMIT passphraseNeeded(qs(m_sources.find(id)->name));
+                    Q_EMIT passphraseNeeded(unlockLabel());
             }
         });
-    if (!started) setBusy(false);
+    // The job has its own copies; this frame's secrets end here, started or not.
+    core::wipeMasterKeys(options.masterKeys);
+    wipeAll(options.passphrases);
+    wipeAll(options.imagePassphrases);
+    if (!started) {
+        setBusy(false);
+        if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
+        m_pendingUnlock.reset();
+    }
+}
+
+void Workspace::finishPendingUnlock(bool ok, bool cancelled) {
+    if (cancelled) {
+        // The job's Cancel stopped a key derivation, so nothing was refuted. The user said stop,
+        // though: the passphrase of the unlock in flight goes too, or the next hot-plug refresh would
+        // quietly start the same slow unlock all over again.
+        const bool container = m_pendingUnlock && !m_pendingUnlock->image;
+        Q_EMIT error(toast("Unlock cancelled", container ? "Nothing was unlocked on " + qs(m_pendingUnlock->name) + "." : "Nothing was unlocked; locked containers stay as they are.", "info"));
+        if (container) {
+            forgetOne(m_passphrases[m_pendingUnlock->sourceId], m_pendingUnlock->passphrase);
+            wipe(m_pendingUnlock->passphrase);
+            m_pendingUnlock.reset();
+            return;
+        }
+    }
+    if (!m_pendingUnlock) return;
+    PendingUnlock pu = std::move(*m_pendingUnlock);
+    m_pendingUnlock.reset();
+    auto wrong = [&] {
+        forgetOne(pu.image ? m_imagePassphrases[pu.sourceId] : m_passphrases[pu.sourceId], pu.passphrase);
+        if (pu.tcrypt) Q_EMIT error(toast("Nothing unlocked", "No VeraCrypt or TrueCrypt header on " + qs(pu.name) + " opens with that passphrase.", "warning"));
+        else Q_EMIT error(toast("Wrong passphrase", "Wrong passphrase for " + qs(pu.name) + ".", "error"));
+    };
+    if (pu.image) {
+        // The file either opened or did not; with the image passphrases apart from the
+        // containers' there is nothing else a failed open can mean.
+        if (!ok) wrong();
+    } else if (ok && m_current && m_currentId == pu.sourceId) {
+        // The node the user unlocked: by path while the tree still agrees on what sits there, else
+        // by uuid (a probe can shift indices when a region appears or disappears).
+        core::NodePath path = pu.path;
+        const stein::probe::Node* node = core::nodeAt(m_current->tree, path);
+        if (!node || uuidOf(*node) != pu.uuid) {
+            path.clear();
+            node = findByUuid(m_current->tree, pu.uuid, path);
+        }
+        if (node) {
+            bool opened = false;
+            for (std::size_t i = 0; i < node->children.size() && !opened; ++i)
+                if (node->children[i].kind == stein::probe::NodeKind::Decrypted) {
+                    core::NodePath child = path;
+                    child.push_back(static_cast<int>(i));
+                    selectPath(pathToVariant(child));   // the tree speaks; no toast
+                    opened = true;
+                }
+            if (!opened) {
+                const int row = m_topology.rowForPath(path);
+                const bool locked = row >= 0 && m_topology.rows()[static_cast<std::size_t>(row)].isLockedContainer;
+                if (locked || pu.tcrypt) wrong();
+            }
+        }
+    }
+    wipe(pu.passphrase);
+}
+
+void Workspace::promptAfterRelaunch() {
+    // Back on the source after the elevated relaunch; the passphrase did not travel, so the
+    // first container that wants one asks now, once. Nothing locked: nothing to ask.
+    const auto& rows = m_topology.rows();
+    for (std::size_t row = 0; row < rows.size(); ++row)
+        if (rows[row].isLockedContainer) {
+            selectRow(static_cast<int>(row));
+            Q_EMIT passphraseNeeded(unlockLabel());
+            return;
+        }
+}
+
+void Workspace::restoreRelaunchSelection() {
+    const QByteArray raw = qgetenv("DRSTEIN_SOURCE");
+    if (raw.isEmpty()) return;
+    qunsetenv("DRSTEIN_SOURCE");   // once; a plain restart from this process must not replay it
+    const std::string id = raw.toStdString();
+    if (!m_sources.find(id)) return;
+    auto go = [this, id] {
+        // main() opens the images from the command line itself; when the one to come back to is
+        // already open, select() would return early and the prompt would never come.
+        if (m_current && m_currentId == id) {
+            promptAfterRelaunch();
+            return;
+        }
+        m_relaunchSource = id;
+        select(qs(id));
+    };
+    // main() may have started the probe of an image given on the command line; let it land first.
+    if (!JobRunner::instance()->running()) {
+        go();
+        return;
+    }
+    auto* ctx = new QObject(this);
+    connect(JobRunner::instance(), &JobRunner::runningChanged, ctx, [this, ctx, go] {
+        if (JobRunner::instance()->running()) return;
+        ctx->deleteLater();
+        QTimer::singleShot(0, this, go);   // after the finished job's own done handler
+    });
 }
 
 void Workspace::setCurrent(std::optional<core::OpenedSource> source, QVariantMap err, const std::string& id) {
@@ -335,6 +608,12 @@ void Workspace::rebuildRows() {
     }
     auto rows = core::topologyRows(m_current->tree, Settings::instance()->expertMode());
     if (m_current->descriptor.disk) core::annotateOsDevices(rows, m_current->tree, *m_current->descriptor.disk, stein::platform::current().name(), m_osMounts);
+    // The OS table knows nothing of the app's own exports; they are found by node.
+    for (const auto& m : m_mounts.list()) {
+        if (!m.running || m.sourceId != m_currentId) continue;
+        for (auto& r : rows)
+            if (!r.isMetadata && r.path == m.nodePath && r.mountpoint.empty()) r.mountpoint = m.mountpoint.string();
+    }
     m_topology.setRows(std::move(rows));
     const int row = m_selectedMetadata >= 0 ? -1 : m_topology.rowForPath(m_selectedPath);
     m_topology.setSelectedRow(row >= 0 ? row : 0);
@@ -374,6 +653,7 @@ int Workspace::selectedSegment() const {
 QVariantList Workspace::selectedPathVariant() const { return pathToVariant(m_selectedPath); }
 
 void Workspace::updateDetails() {
+    m_tcryptCandidate = false;
     if (!m_current) {
         m_details.set({}, false);
         return;
@@ -382,6 +662,17 @@ void Workspace::updateDetails() {
     else {
         core::NodeDetails d = core::nodeDetails(m_current->tree, m_selectedPath);
         if (m_current->descriptor.disk) core::annotateOsDevice(d, m_current->tree, m_selectedPath, *m_current->descriptor.disk, stein::platform::current().name(), m_osMounts);
+        if (d.mountpoint.empty())
+            if (auto own = m_mounts.find(m_currentId, m_selectedPath); own && own->running) {
+                d.mountpoint = own->mountpoint.string();
+                d.rows.insert(d.rows.begin(), {"mounted at", d.mountpoint + " · by Dr Stein, read-only", false});
+                d.canMount = false;
+            }
+        if (const auto* node = core::nodeAt(m_current->tree, m_selectedPath)) {
+            // What the probe's VeraCrypt trial would look at: bytes nothing else claims, big enough for a header pair.
+            using stein::probe::NodeKind;
+            m_tcryptCandidate = node->device && !node->content && !node->table && node->children.empty() && node->kind != NodeKind::Free && node->region.length >= 256 * stein::KiB;
+        }
         if (m_selectedPath.empty()) {
             d.title = m_current->descriptor.title;
             if (const auto& img = m_current->descriptor.image) {
@@ -425,23 +716,113 @@ void Workspace::computeUsage() {
 
 // ---- unlocking and re-probing --------------------------------------------------------
 
+QString Workspace::unlockLabel() const {
+    const std::string id = m_currentId.empty() ? m_selectedSourceId : m_currentId;
+    const auto* d = m_sources.find(id);
+    const std::string source = d ? d->name : std::string{};
+    if (!m_current || m_currentId != id) return qs(d && d->image && d->image->encrypted ? source + " (encrypted image)" : source);
+    const auto* node = core::nodeAt(m_current->tree, m_selectedPath);
+    if (!node || m_selectedMetadata >= 0) return qs(source);
+    std::string what = m_selectedPath.empty() ? source : stein::toLower(core::kindLabel(*node)) + " on " + source;   // "partition 2 on disk5"
+    if (const std::string chain = node->content ? core::contentChain(*node) : std::string{}; !chain.empty()) what += " (" + chain + ")";   // "(LUKS2)"
+    return qs(what);
+}
+
 void Workspace::unlock(const QString& passphrase) {
     const std::string id = m_currentId.empty() ? m_selectedSourceId : m_currentId;
     if (id.empty() || passphrase.isEmpty()) return;
-    auto& list = m_passphrases[id];
     const std::string p = ss(passphrase);
-    bool known = false;
-    for (const auto& x : list)
-        if (x == p) known = true;
-    if (!known) list.push_back(p);
-    // Images that were locked need a fresh describe (manifest, hash) before the open.
-    if (const auto* d = m_sources.find(id); d && d->kind == core::SourceKind::ImageFile)
+    const auto* d = m_sources.find(id);
+    PendingUnlock pending;
+    pending.sourceId = id;
+    pending.passphrase = p;
+    pending.name = ss(unlockLabel());
+    // A locked image file takes the passphrase for itself; once it is open, every further
+    // passphrase is for the containers inside.
+    pending.image = d && d->image && d->image->locked;
+    if (pending.image) {
+        addUnique(m_imagePassphrases[id], p);
+        // Images that were locked need a fresh describe (manifest, hash) before the open.
         if (auto fresh = core::describeImageFile(d->image->path, p)) {
             m_sources.replace(*fresh);
             for (auto& img : m_images)
                 if (img.id == id) img = *fresh;
         }
+    } else {
+        addUnique(m_passphrases[id], p);
+        if (m_current && m_currentId == id && m_selectedMetadata < 0)
+            if (const auto* node = core::nodeAt(m_current->tree, m_selectedPath)) {
+                pending.path = m_selectedPath;
+                pending.uuid = uuidOf(*node);
+            }
+    }
+    if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
+    m_pendingUnlock = std::move(pending);
     openSourceAsync(id, false);
+}
+
+void Workspace::tryVeraCrypt(const QString& passphrase) {
+    const std::string id = m_currentId;
+    if (id.empty() || !m_current || passphrase.isEmpty() || m_selectedMetadata >= 0) return;
+    const auto* node = core::nodeAt(m_current->tree, m_selectedPath);
+    if (!node) return;
+    const std::string p = ss(passphrase);
+    addUnique(m_passphrases[id], p);
+    PendingUnlock pending;
+    pending.sourceId = id;
+    pending.passphrase = p;
+    pending.name = ss(unlockLabel());
+    pending.path = m_selectedPath;
+    pending.uuid = uuidOf(*node);
+    pending.tcrypt = true;
+    if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
+    m_pendingUnlock = std::move(pending);
+    m_tcryptOnce = true;
+    openSourceAsync(id, false);
+}
+
+void Workspace::mountSelected() {
+    if (!m_current || m_selectedMetadata >= 0) return;
+    const auto* node = core::nodeAt(m_current->tree, m_selectedPath);
+    if (!node || !node->content) return;
+    if (JobRunner::instance()->running()) {
+        Q_EMIT error(errorToVariant(stein::Error(stein::ErrorCategory::Busy, "an operation is running; wait for it before mounting")));
+        return;
+    }
+    if (auto own = m_mounts.find(m_currentId, m_selectedPath); own && own->running) {
+        Q_EMIT error(toast("Already mounted", "Readable at " + pathText(own->mountpoint) + ".", "info"));
+        return;
+    }
+    // The mount thread owns its reader; the Browse view keeps its own.
+    auto reader = node->content->openReader({});
+    if (!reader) {
+        Q_EMIT error(errorToVariant(reader.error()));
+        return;
+    }
+    const std::string label = node->content->info().label;
+    const std::string nodeName = core::displayName(*node).empty() ? m_current->descriptor.name : core::displayName(*node);
+    const std::string fsName = std::string(stein::fs::displayName(node->content->type()));
+    core::MountRequest req;
+    req.what = (label.empty() ? nodeName : label) + " (" + fsName + ") in " + m_current->descriptor.name;
+    req.name = label.empty() ? nodeName : label;
+    req.sourceId = m_currentId;
+    req.nodePath = m_selectedPath;
+    auto rec = m_mounts.mount(std::move(*reader), std::move(req));
+    if (!rec) {
+        Q_EMIT error(errorToVariant(rec.error()));
+        return;
+    }
+    refreshMounts();
+    QVariantMap e = toast("Mounted", "Readable at " + pathText(rec->mountpoint) + " until you unmount it (details card or top bar).", "info");
+    e["actionLabel"] = revealLabel();
+    e["actionPath"] = pathText(rec->mountpoint);
+    Q_EMIT error(e);
+}
+
+void Workspace::revealPath(const QString& path) {
+    if (path.isEmpty()) return;
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+        Q_EMIT error(errorToVariant(stein::Error(stein::ErrorCategory::Io, "could not open " + ss(path) + " in the file manager")));
 }
 
 void Workspace::reopenCurrent() {
@@ -567,7 +948,11 @@ void Workspace::relaunchElevated() {
         << "DRSTEIN_CHROME=" + QString(Settings::instance()->customTitleBar() ? "custom" : "native")
         << "DRSTEIN_PROFILES_DIR=" + Settings::instance()->profilesDir();
     if (const QByteArray script = qgetenv("DRSTEIN_ELEVATED_SCRIPT"); !script.isEmpty()) env << "DRSTEIN_SCRIPT=" + QString::fromUtf8(script);
-    if (const QByteArray view = qgetenv("DRSTEIN_VIEW"); !view.isEmpty()) env << "DRSTEIN_VIEW=" + QString::fromUtf8(view);
+    env << "DRSTEIN_VIEW=" + m_view;
+    // The selected source by id (a disk's identity, an image's path), so the copy lands where the
+    // user was. Passphrases stay here: the environment of a root process is readable by root's
+    // tools and would outlive this one in ps output.
+    if (const std::string sel = m_currentId.empty() ? m_selectedSourceId : m_currentId; !sel.empty() && m_sources.find(sel)) env << "DRSTEIN_SOURCE=" + qs(sel);
 #if defined(Q_OS_WIN)
     QString params;
     for (const auto& a : args) params += "\"" + a + "\" ";

@@ -158,15 +158,19 @@ QVariantMap ToolsController::capacityTest(const QString& confirmText, bool quick
     if (!req.expectedConfirm.empty() && req.confirmText != req.expectedConfirm)
         return errorToVariant(stein::Error(stein::ErrorCategory::InvalidArgument, "type " + req.expectedConfirm + " to confirm"));
     const core::SourceDescriptor target = c->descriptor;
-    const std::vector<std::string> passphrases = Workspace::instance()->passphrasesFor(target.id);
+    const std::vector<std::string> passphrases = Workspace::instance()->containerPassphrasesFor(target.id);
+    const std::vector<std::string> imagePassphrases = Workspace::instance()->imagePassphrasesFor(target.id);
+    const core::MasterKeys masterKeys = Workspace::instance()->masterKeysFor(target.id);
     m_test.reset();
     auto result = std::make_shared<std::optional<stein::ops::CapacityTestResult>>();
     JobRunner::instance()->start(
         "Capacity test on " + qs(target.title), "tools",
-        [target, passphrases, req, result](stein::Progress& progress, stein::Report& report) -> stein::Expected<void> {
+        [target, passphrases, imagePassphrases, masterKeys, req, result](stein::Progress& progress, stein::Report& report) -> stein::Expected<void> {
             core::OpenOptions o;
             o.writable = true;
             o.passphrases = passphrases;
+            o.imagePassphrases = imagePassphrases;
+            o.masterKeys = masterKeys;
             auto dev = core::openDevice(target, o);
             if (!dev) return stein::fail(dev.error());
             auto r = core::runCapacityTest(**dev, req, progress, report);

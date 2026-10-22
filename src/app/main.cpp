@@ -7,6 +7,7 @@
 //   DRSTEIN_VIEW=topology|hex|browse|image|profiles|tools|partitions   start on that view
 //   DRSTEIN_SCREENSHOT=<file.png>    grab the window after DRSTEIN_DELAY ms (default 2500), save it, quit
 //   DRSTEIN_SCRIPT=<javascript>      evaluated in Main.qml's scope 1 s after start (smoke runs)
+//   DRSTEIN_SOURCE=<source id>       after an elevated relaunch: select this disk or image and ask once for its passphrase
 #include "app_icon.hpp"
 #include "codicon_provider.hpp"
 #include "device_watcher.hpp"

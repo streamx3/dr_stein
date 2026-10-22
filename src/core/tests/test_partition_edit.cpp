@@ -261,3 +261,250 @@ TEST_CASE("logical partitions are an MBR thing") {
     CHECK(r.error().category() == ErrorCategory::Unsupported);
     CHECK(session->stack().empty());
 }
+
+// Review findings against 28d32fc, each on the MBR composite unless it says otherwise.
+
+TEST_CASE("MBR: a default logical between two logicals stops before the next one's EBR") {
+    auto disk = drstein::test::mbrComposite();
+    drstein::test::TempDir tmp;
+    const auto file = drstein::test::writeDevice(*disk.device, tmp.file("mbr.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+    auto session = EditSession::open(*desc, OpenOptions{});
+    REQUIRE(session);
+    const Lba extLast = (disk.extendedOffset + disk.extendedSize) / 512 - 1;
+    const Lba firstLogicalEnd = (disk.logicalOffset + disk.logicalSize) / 512 - 1;
+    constexpr Lba gap = pt::MbrTable::kDefaultEbrGap;
+
+    // A 2 MiB logical at the container's end; the library puts its EBR one gap before its data.
+    const Lba tailStart = extLast + 1 - 4096;
+    AddPartitionForm tail;
+    tail.typeText = "83";
+    tail.logical = true;
+    tail.startText = std::to_string(tailStart) + "s";
+    REQUIRE(session->addPartition(tail));
+    REQUIRE(session->preview().table->find(6));
+    const pt::Partition six = *session->preview().table->find(6);
+    CHECK(six.firstLba == tailStart);
+    CHECK(six.lastLba == extLast);
+    REQUIRE(six.ebrLba.has_value());
+    CHECK(*six.ebrLba == tailStart - gap);
+
+    // The 6 MiB between logical 5 and that EBR is now the largest candidate. The default end must
+    // stop at the EBR's sector, or the library has no room for the chain and refuses the add.
+    AddPartitionForm add;
+    add.typeText = "83";
+    add.logical = true;
+    REQUIRE(session->addPartition(add));
+    const auto& table = *session->preview().table;
+    const pt::Partition* mid = nullptr;
+    for (const auto& p : table.partitions())
+        if (p.isLogical && p.firstLba == firstLogicalEnd + 1 + gap) mid = &p;
+    REQUIRE(mid);
+    CHECK(mid->index == 6);   // its place in the chain: behind 5, in front of the tail one
+    CHECK(mid->lastLba == *six.ebrLba - 1);
+    CHECK(mid->ebrLba == firstLogicalEnd + 1);
+    REQUIRE(table.find(7));
+    CHECK(table.find(7)->firstLba == tailStart);
+    CHECK(table.find(7)->ebrLba == six.ebrLba);
+    auto pending = pendingRows(session->stack());
+    REQUIRE(pending.size() == 2);
+    CHECK(pending[0].title.starts_with("Add logical partition 6: Linux"));
+    // Inserted in front of an existing logical: the slot it gets is one the table API calls busy, so
+    // the text names none rather than the wrong one; the preview row carries the real slot.
+    CHECK(pending[1].title.starts_with("Add logical partition: Linux"));
+    int fresh = 0;
+    for (const auto& r : previewRows(session->base(), session->preview())) {
+        CHECK(!r.deleted);
+        if (r.change == "new") ++fresh;
+        if (r.index == 5) CHECK(!r.changed);
+    }
+    CHECK(fresh == 2);
+
+    NullProgressSink sink;
+    Progress progress(sink);
+    auto applied = session->apply(progress);
+    REQUIRE(applied);
+    CHECK(applied->postconditionOk);
+    REQUIRE(session->base().table);
+    const auto& written = *session->base().table;
+    CHECK(written.partitions().size() == 6);
+    REQUIRE(written.find(6));
+    REQUIRE(written.find(7));
+    CHECK(written.find(6)->firstLba == firstLogicalEnd + 1 + gap);
+    CHECK(written.find(6)->lastLba == tailStart - gap - 1);
+    CHECK(written.find(6)->ebrLba == firstLogicalEnd + 1);
+    CHECK(written.find(7)->firstLba == tailStart);
+    CHECK(written.find(7)->ebrLba == tailStart - gap);
+    CHECK(written.metadataRegions().size() == 4);   // the MBR and three EBRs
+    for (const auto& d : written.diagnostics()) CHECK(d.severity < layout::Validity::Error);
+}
+
+TEST_CASE("MBR: a gap that cannot hold an EBR and a MiB of data is no place for a logical") {
+    auto disk = drstein::test::mbrComposite();
+    drstein::test::TempDir tmp;
+    const auto file = drstein::test::writeDevice(*disk.device, tmp.file("mbr.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+    auto session = EditSession::open(*desc, OpenOptions{});
+    REQUIRE(session);
+    const Lba extLast = (disk.extendedOffset + disk.extendedSize) / 512 - 1;
+    const Lba firstLogicalEnd = (disk.logicalOffset + disk.logicalSize) / 512 - 1;
+    constexpr Lba gap = pt::MbrTable::kDefaultEbrGap;
+
+    // Fill the container's tail, EBR gap included: what is left inside is the first logical's own
+    // EBR gap at the container's start and the new one's at its end, one gap each.
+    AddPartitionForm fill;
+    fill.typeText = "83";
+    fill.logical = true;
+    fill.startText = std::to_string(firstLogicalEnd + 1 + gap) + "s";
+    REQUIRE(session->addPartition(fill));
+    REQUIRE(session->preview().table->find(6));
+    CHECK(session->preview().table->find(6)->ebrLba == firstLogicalEnd + 1);
+    CHECK(session->preview().table->find(6)->lastLba == extLast);
+
+    // Before: the first gap "won" as the largest candidate and produced a one-sector logical on top
+    // of partition 5, refused by the library for the overlap. The honest answer is "no room".
+    AddPartitionForm add;
+    add.typeText = "83";
+    add.logical = true;
+    auto refused = session->addPartition(add);
+    REQUIRE(!refused);
+    CHECK(refused.error().category() == ErrorCategory::OutOfRange);
+    CHECK(refused.error().message() == "no free space inside the extended partition");
+    CHECK(pendingRows(session->stack()).size() == 1);
+}
+
+TEST_CASE("MBR: a logical added in front takes slot 5; rows and colours follow the partitions, not the slots") {
+    auto disk = drstein::test::mbrComposite();
+    drstein::test::TempDir tmp;
+    const auto file = drstein::test::writeDevice(*disk.device, tmp.file("mbr.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+    auto session = EditSession::open(*desc, OpenOptions{});
+    REQUIRE(session);
+    const Lba extFirst = disk.extendedOffset / 512, extLast = (disk.extendedOffset + disk.extendedSize) / 512 - 1;
+    constexpr Lba gap = pt::MbrTable::kDefaultEbrGap;
+    const Lba tailStart = extLast + 1 - 4096;
+    NullProgressSink sink;
+    Progress progress(sink);
+
+    // Round one: a logical at the container's end, then the ext4 one in front of it deleted, each
+    // applied on its own. The one left is the chain's head now, so the rewritten chain puts its EBR
+    // in the container's first sector and it comes back from the re-read as slot 5.
+    AddPartitionForm tail;
+    tail.typeText = "83";
+    tail.logical = true;
+    tail.startText = std::to_string(tailStart) + "s";
+    REQUIRE(session->addPartition(tail));
+    {
+        auto applied = session->apply(progress);
+        REQUIRE(applied);
+        CHECK(applied->postconditionOk);
+    }
+    REQUIRE(session->base().table);
+    REQUIRE(session->base().table->find(6));
+    CHECK(session->base().table->find(6)->firstLba == tailStart);
+    REQUIRE(session->deletePartition(5));
+    {
+        auto applied = session->apply(progress);
+        REQUIRE(applied);
+        CHECK(applied->postconditionOk);
+    }
+    REQUIRE(session->base().table);
+    REQUIRE(session->base().table->find(5));
+    CHECK(session->base().table->find(5)->firstLba == tailStart);
+    CHECK(session->base().table->find(5)->ebrLba == extFirst);
+    CHECK(!session->base().table->find(6));
+
+    // Round two: a default logical lands in the space in front of it and becomes slot 5; the old
+    // one moves to slot 6 without changing. Its end leaves the default EBR gap before the old one's
+    // data, where the chain will put that EBR.
+    AddPartitionForm add;
+    add.typeText = "83";
+    add.logical = true;
+    REQUIRE(session->addPartition(add));
+    const auto& table = *session->preview().table;
+    REQUIRE(table.find(5));
+    REQUIRE(table.find(6));
+    CHECK(table.find(5)->firstLba == extFirst + gap);
+    CHECK(table.find(5)->lastLba == tailStart - gap - 1);
+    CHECK(table.find(6)->firstLba == tailStart);
+    CHECK(table.find(6)->lastLba == extLast);
+    CHECK(pendingRows(session->stack()).back().title.starts_with("Add logical partition: Linux"));
+    // Base colours in base order: FAT16 0, exFAT 1, the tail logical 2; the newcomer continues.
+    bool sawNew = false, sawOld = false;
+    for (const auto& r : previewRows(session->base(), session->preview())) {
+        CHECK(!r.deleted);
+        if (r.index == 5) {
+            sawNew = true;
+            CHECK(r.change == "new");
+            CHECK(r.colorIndex == 3);
+        }
+        if (r.index == 6) {
+            sawOld = true;
+            CHECK(r.change == "");
+            CHECK(!r.changed);
+            CHECK(r.colorIndex == 2);
+        }
+    }
+    CHECK(sawNew);
+    CHECK(sawOld);
+    for (const auto& s : previewSegments(session->base(), session->preview())) {
+        const auto* n = nodeAt(session->preview(), s.path);
+        if (!n || !n->partition) continue;
+        if (n->partition->index == 5) CHECK(s.colorIndex == 3);
+        if (n->partition->index == 6) CHECK(s.colorIndex == 2);
+    }
+
+    auto applied = session->apply(progress);
+    REQUIRE(applied);
+    CHECK(applied->postconditionOk);
+    const auto& written = *session->base().table;
+    REQUIRE(written.find(5));
+    REQUIRE(written.find(6));
+    CHECK(written.find(5)->firstLba == extFirst + gap);
+    CHECK(written.find(5)->ebrLba == extFirst);
+    CHECK(written.find(6)->firstLba == tailStart);
+    CHECK(written.find(6)->ebrLba == tailStart - gap);
+    CHECK(written.metadataRegions().size() == 3);
+    for (const auto& d : written.diagnostics()) CHECK(d.severity < layout::Validity::Error);
+}
+
+TEST_CASE("pending titles are the library's, whatever table the preview ends with") {
+    auto disk = drstein::test::compositeDisk();
+    drstein::test::TempDir tmp;
+    const auto file = drstein::test::writeDevice(*disk.device, tmp.file("gpt.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+    auto session = EditSession::open(*desc, OpenOptions{});
+    REQUIRE(session);
+    AddPartitionForm add;
+    add.typeText = "8300";
+    add.index = 5;
+    REQUIRE(session->addPartition(add));
+    REQUIRE(session->createTable(pt::TableType::Mbr));   // the preview is MBR now, the add was GPT
+    auto pending = pendingRows(session->stack());
+    REQUIRE(pending.size() == 2);
+    CHECK(pending[0].title.starts_with("Add partition 5: Linux filesystem"));
+    CHECK(pending[1].title == "Create MBR partition table");
+}
+
+TEST_CASE("the table re-read note says only what happened") {
+    const Expected<void> ok{};
+    const Expected<void> busy = fail(ErrorCategory::Busy, "BLKRRPART failed on /dev/sdb: Device or resource busy");
+    auto asked = tableRereadNote("linux", ok);   // not named `linux`: GCC predefines that macro under gnu++
+    CHECK(asked.happened);
+    CHECK(asked.text == "asked the OS");
+    // macOS has no re-read call: the kernel does it when the last writer closes the disk, which the
+    // editor has not done yet. The note must not claim a re-read.
+    auto mac = tableRereadNote("macos", ok);
+    CHECK(!mac.happened);
+    CHECK(mac.text.find("asked") == std::string::npos);
+    CHECK(mac.text.find("closes the disk") != std::string::npos);
+    auto refused = tableRereadNote("linux", busy);
+    CHECK(!refused.happened);
+    CHECK(refused.text.find("did not re-read") != std::string::npos);
+    CHECK(refused.text.find("Device or resource busy") != std::string::npos);
+    CHECK(refused.text.find("reconnect") != std::string::npos);
+}

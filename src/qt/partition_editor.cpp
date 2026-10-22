@@ -46,7 +46,9 @@ void PartitionEditor::reload() {
     } else {
         m_sourceId = c->descriptor.id;
         core::OpenOptions o;
-        o.passphrases = w->passphrasesFor(m_sourceId);
+        o.passphrases = w->containerPassphrasesFor(m_sourceId);
+        o.imagePassphrases = w->imagePassphrasesFor(m_sourceId);
+        o.masterKeys = w->masterKeysFor(m_sourceId);   // unlocked LUKS payloads reopen without the KDF
         auto s = core::EditSession::open(c->descriptor, o);
         if (s) m_session.emplace(std::move(*s));
         else {

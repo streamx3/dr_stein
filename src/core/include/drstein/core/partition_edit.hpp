@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace drstein::core {
@@ -92,5 +93,18 @@ struct PartitionTypeChoice {
     std::string group;                // "Linux"
 };
 std::vector<PartitionTypeChoice> partitionTypeChoices(stein::pt::TableType scheme);
+
+// What became of the OS's copy of a real disk's table after a write, from the result of
+// Platform::rereadPartitionTable: `happened` when that call made the kernel re-read it there and
+// then (Linux BLKRRPART, Windows), and one sentence for the report or a toast either way. macOS has
+// no such call: the kernel re-reads when the last writer closes the disk, which an open editor has
+// not done yet, so the sentence says that instead of claiming a re-read. A refusal (Linux: a
+// mounted partition keeps the old layout busy) is a note, not a failed write: the bytes are on the
+// disk and the probe reads them; only the OS's partition nodes lag behind.
+struct TableRereadNote {
+    bool happened = false;
+    std::string text;
+};
+TableRereadNote tableRereadNote(std::string_view platformName, const stein::Expected<void>& reread);
 
 } // namespace drstein::core

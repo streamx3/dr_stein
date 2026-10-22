@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: MIT
+#include "drstein/core/mounts.hpp"
+#include "drstein/core/opened.hpp"
 #include "drstein/core/source.hpp"
 #include "drstein/core/topology.hpp"
 #include "fixtures.hpp"
 
 #include <doctest.h>
+
+#include <array>
+#include <cstring>
+#include <fstream>
 
 using namespace drstein::core;
 using namespace stein;
@@ -14,6 +20,27 @@ probe::Node probed(const std::shared_ptr<BlockDevice>& device) {
     auto tree = probe::probe(device);
     REQUIRE(tree);
     return std::move(*tree);
+}
+
+// A "key=value" line of a fixture's oracle file (tests/fixtures/luks/*.oracle.txt, written by cryptsetup's side).
+std::string oracleValue(const std::string& relativePath, const std::string& key) {
+    std::ifstream in(std::string(STEIN_FIXTURE_DIR) + "/" + relativePath);
+    std::string line;
+    while (std::getline(in, line))
+        if (line.starts_with(key + "=")) return line.substr(key.size() + 1);
+    return {};
+}
+
+std::vector<std::uint8_t> fromHex(const std::string& hex) {
+    std::vector<std::uint8_t> out;
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2) out.push_back(static_cast<std::uint8_t>(std::stoul(hex.substr(i, 2), nullptr, 16)));
+    return out;
+}
+
+bool hasNote(const probe::Node& node, const std::string& code) {
+    for (const auto& n : node.notes)
+        if (n.code == code) return true;
+    return false;
 }
 
 const TopologyRow* rowNamed(const std::vector<TopologyRow>& rows, const std::string& name) {
@@ -354,3 +381,237 @@ TEST_CASE("MBR: the extended container and its logical are rows of their own") {
     CHECK(ebr->sizeBytes == 512);
 }
 
+
+TEST_CASE("LUKS2 through core::openSource: locked without the passphrase, a payload row with it") {
+    // The app's own path: an image file described, opened and probed with the session's passphrases.
+    drstein::test::TempDir tmp;
+    auto fixture = drstein::test::loadFixture("luks/luks2.sparse");
+    const auto file = drstein::test::writeDevice(*fixture, tmp.file("luks2.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+
+    auto locked = openSource(*desc, OpenOptions{});
+    REQUIRE(locked);
+    auto rows = topologyRows(locked->tree, false);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].isLockedContainer);
+    CHECK(!rows[0].canBrowse);
+    CHECK(!rows[0].canMount);
+    CHECK(rows[0].content.starts_with("LUKS2"));
+    CHECK(contentChain(locked->tree) == "LUKS2");
+    auto d = nodeDetails(locked->tree, {});
+    CHECK(d.isLockedContainer);
+    for (const auto& i : d.issues) CHECK(i.code != "luks.unsupported");
+
+    OpenOptions wrong;
+    wrong.passphrases = {"not it"};
+    auto still = openSource(*desc, wrong);
+    REQUIRE(still);
+    rows = topologyRows(still->tree, false);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].isLockedContainer);
+
+    OpenOptions right;
+    right.passphrases = {"not it", "luks test passphrase"};
+    auto open = openSource(*desc, right);
+    REQUIRE(open);
+    rows = topologyRows(open->tree, false);
+    REQUIRE(rows.size() == 2);
+    CHECK(!rows[0].isLockedContainer);
+    CHECK(rows[1].kindLabel == "Decrypted");
+    CHECK(rows[1].depth == 1);
+    CHECK(rows[1].path == NodePath{0});
+    CHECK(rows[1].canBrowse);
+    CHECK(rows[1].canInspect);
+    CHECK(rows[1].canMount == MountManager::available());
+    CHECK(rows[1].content.starts_with("ext2"));
+    CHECK(contentChain(open->tree) == "LUKS2 → ext2");
+    auto pd = nodeDetails(open->tree, {0});
+    CHECK(pd.kindLabel == "Decrypted");
+    CHECK(pd.canBrowse);
+    CHECK(pd.canMount == MountManager::available());
+    CHECK(!pd.isLockedContainer);
+
+    // The image list is for an encrypted .stein file; a raw image ignores it, and it is never
+    // run through the container's KDF.
+    OpenOptions apart;
+    apart.imagePassphrases = {"luks test passphrase"};
+    auto notForContainers = openSource(*desc, apart);
+    REQUIRE(notForContainers);
+    CHECK(topologyRows(notForContainers->tree, false).size() == 1);
+    CHECK(nodeDetails(notForContainers->tree, {}).isLockedContainer);
+}
+
+TEST_CASE("a cached master key opens LUKS2 without a passphrase; a passphrase reports its key; Cancel leaves the container locked") {
+    // The session's path after the first unlock: openSource with the key the oracle lists, no passphrase at all.
+    drstein::test::TempDir tmp;
+    auto fixture = drstein::test::loadFixture("luks/luks2.sparse");
+    const auto file = drstein::test::writeDevice(*fixture, tmp.file("luks2.img"));
+    auto desc = describeImageFile(file);
+    REQUIRE(desc);
+    const std::vector<std::uint8_t> oracleKey = fromHex(oracleValue("luks/luks2.oracle.txt", "master_key"));
+    REQUIRE(oracleKey.size() == 64);
+
+    // The cache is keyed by the UUID the locked probe already shows (the one blkid prints).
+    auto locked = openSource(*desc, OpenOptions{});
+    REQUIRE(locked);
+    REQUIRE(locked->tree.content);
+    const std::string uuid = locked->tree.content->info().uuid;
+    CHECK(uuid == "a3e67338-7a03-4d96-8f7d-eadb8846c668");   // luks2.dump.txt
+
+    int reported = 0;
+    OpenOptions keyed;
+    keyed.masterKeys[uuid] = oracleKey;
+    keyed.onUnlocked = [&](const std::string&, const std::vector<std::uint8_t>&) { ++reported; };
+    auto open = openSource(*desc, keyed);
+    REQUIRE(open);
+    auto rows = topologyRows(open->tree, false);
+    REQUIRE(rows.size() == 2);
+    CHECK(!rows[0].isLockedContainer);
+    CHECK(rows[1].kindLabel == "Decrypted");
+    CHECK(rows[1].content.starts_with("ext2"));
+    CHECK(rows[1].canBrowse);
+    CHECK(contentChain(open->tree) == "LUKS2 → ext2");
+    CHECK(reported == 0);   // nothing was derived, nothing to cache
+    CHECK(!hasNote(open->tree, "luks.locked"));
+    CHECK(!hasNote(open->tree, "luks.unlock"));
+    CHECK(keyed.masterKeys[uuid] == oracleKey);   // the caller's copy is untouched; only the probe's copies are wiped
+
+    // A stale key (the container was re-keyed, say) is skipped without a word and the passphrase does the
+    // work; the key it yields comes back once, by UUID, and is the oracle's.
+    OpenOptions stale;
+    stale.masterKeys[uuid] = oracleKey;
+    stale.masterKeys[uuid][0] ^= 0xFF;
+    stale.passphrases = {"luks test passphrase"};
+    std::string reportedUuid;
+    std::vector<std::uint8_t> reportedKey;
+    stale.onUnlocked = [&](const std::string& u, const std::vector<std::uint8_t>& k) {
+        ++reported;
+        reportedUuid = u;
+        reportedKey = k;
+    };
+    auto derived = openSource(*desc, stale);
+    REQUIRE(derived);
+    CHECK(topologyRows(derived->tree, false).size() == 2);
+    CHECK(reported == 1);
+    CHECK(reportedUuid == uuid);
+    CHECK(reportedKey == oracleKey);
+    CHECK(!hasNote(derived->tree, "luks.unlock"));   // the stale key's digest mismatch is not a diagnostic
+
+    // Cancel before the first slice: the container is left as found, with no luks.locked (nothing was
+    // refuted), the hook was consulted and no key is reported.
+    OpenOptions cancel;
+    cancel.passphrases = {"luks test passphrase"};
+    int polls = 0;
+    cancel.cancelled = [&] {
+        ++polls;
+        return true;
+    };
+    cancel.onUnlocked = [&](const std::string&, const std::vector<std::uint8_t>&) { ++reported; };
+    auto cancelled = openSource(*desc, cancel);
+    REQUIRE(cancelled);
+    rows = topologyRows(cancelled->tree, false);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].isLockedContainer);
+    CHECK(polls > 0);
+    CHECK(reported == 1);
+    CHECK(!hasNote(cancelled->tree, "luks.locked"));
+
+    // Cancel from inside the derivation (the third poll): the slot would have opened had the KDF run to
+    // its end, so a locked result is the proof that Argon2 polls between its slices.
+    OpenOptions late;
+    late.passphrases = {"luks test passphrase"};
+    polls = 0;
+    late.cancelled = [&] { return ++polls >= 3; };
+    auto lateCancel = openSource(*desc, late);
+    REQUIRE(lateCancel);
+    CHECK(topologyRows(lateCancel->tree, false).size() == 1);
+    CHECK(polls >= 3);
+    CHECK(!hasNote(lateCancel->tree, "luks.locked"));
+
+    // No cancel, same passphrase: the derivation runs through, as a control.
+    OpenOptions through;
+    through.passphrases = {"luks test passphrase"};
+    polls = 0;
+    through.cancelled = [&] {
+        ++polls;
+        return false;
+    };
+    auto opened = openSource(*desc, through);
+    REQUIRE(opened);
+    CHECK(topologyRows(opened->tree, false).size() == 2);
+    CHECK(polls >= 3);
+}
+
+TEST_CASE("a LUKS container that cannot be opened in process is not offered for unlocking; the card says why") {
+    auto dev = drstein::test::loadFixture("luks/luks1.sparse");
+    // LUKS1 header: cipher-mode is 32 NUL-padded bytes at offset 40. cbc-essiv is a real mode,
+    // just not one the in-process path implements.
+    std::array<std::byte, 32> mode{};
+    const std::string_view want = "cbc-essiv:sha256";
+    std::memcpy(mode.data(), want.data(), want.size());
+    REQUIRE(dev->writeAt(40, mode));
+    auto tree = probe::probe(dev);
+    REQUIRE(tree);
+    REQUIRE(tree->content);
+    CHECK(tree->content->type() == fs::FsType::Luks1);
+    auto rows = topologyRows(*tree, false);
+    REQUIRE(rows.size() == 1);
+    CHECK(!rows[0].isLockedContainer);
+    auto d = nodeDetails(*tree, {});
+    CHECK(!d.isLockedContainer);
+    int said = 0;
+    std::string why;
+    for (const auto& i : d.issues)
+        if (i.code == "luks.unsupported") {
+            ++said;
+            why = i.message;
+        }
+    CHECK(said == 1);
+    CHECK(why.find("cbc-essiv") != std::string::npos);
+
+    // With a passphrase the probe leaves its own note; the card still says it once and stays locked-less.
+    probe::Options o;
+    o.passphrases = {"luks test passphrase"};
+    o.tcrypt = false;
+    auto probed = probe::probe(dev, o);
+    REQUIRE(probed);
+    CHECK(probed->children.empty());
+    d = nodeDetails(*probed, {});
+    said = 0;
+    for (const auto& i : d.issues)
+        if (i.code == "luks.unsupported") ++said;
+    CHECK(said == 1);
+    CHECK(!d.isLockedContainer);
+    CHECK(!topologyRows(*probed, false)[0].isLockedContainer);
+
+    // The untouched fixture is unlockable.
+    auto plain = probe::probe(drstein::test::loadFixture("luks/luks1.sparse"));
+    REQUIRE(plain);
+    CHECK(nodeDetails(*plain, {}).isLockedContainer);
+}
+
+TEST_CASE("mount directories are named after the label, sanitised; the mount table check is read-only") {
+    CHECK(mountDirectoryName("inside_luks", "Partition 2") == "inside_luks");
+    CHECK(mountDirectoryName("", "Partition 2") == "Partition 2");
+    CHECK(mountDirectoryName("", "") == "volume");
+    CHECK(mountDirectoryName("Photos/2024:Trip", "x") == "Photos_2024_Trip");
+    CHECK(mountDirectoryName("back\\slash", "x") == "back_slash");
+    CHECK(mountDirectoryName("..", "fallback") == "fallback");
+    CHECK(mountDirectoryName(" .hidden ", "x") == "hidden");
+    CHECK(mountDirectoryName("tab\there", "x") == "tab_here");
+    CHECK(mountDirectoryName(std::string(100, 'a'), "x").size() == 64);
+    CHECK(mountDirectoryName("Данные", "x") == "Данные");   // UTF-8 passes through untouched
+    // A plain directory is not a mountpoint; the check reads the mount table and never touches the path.
+    CHECK(!MountManager::isMounted(std::filesystem::temp_directory_path() / "drstein-not-a-mountpoint"));
+#if defined(__APPLE__) || defined(__linux__)
+    // The root is always one; a path through a symlink (/var -> /private/var on macOS) that is
+    // not a mountpoint stays a non-mountpoint whichever way it is spelled.
+    CHECK(MountManager::isMounted("/"));
+    CHECK(!MountManager::isMounted("/var/drstein-not-a-mountpoint"));
+#endif
+    MountManager empty;
+    CHECK(!empty.find("image:/x", {0}));
+    CHECK(!empty.findByMountpoint("/nowhere"));
+    CHECK(empty.reapEnded().empty());
+}

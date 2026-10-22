@@ -34,13 +34,30 @@ NodePath parentOf(const NodePath& path) {
 
 namespace {
 
-bool isLocked(const Node& node) {
+bool isLuks(const Node& node) {
     if (!node.content) return false;
     const auto t = node.content->type();
-    if (t != fs::FsType::Luks1 && t != fs::FsType::Luks2) return false;
+    return t == fs::FsType::Luks1 || t == fs::FsType::Luks2;
+}
+
+// Why a LUKS container cannot be opened in process ("" when it can): the probe's note when it
+// looked (it only does so with passphrases), else the header's own verdict. A header read, not
+// a key derivation, so cheap enough for every row.
+std::string unsupportedReason(const Node& node) {
+    if (!isLuks(node)) return {};
+    for (const auto& n : node.notes)
+        if (n.code == "luks.unsupported") return n.message;
+    if (!node.device) return {};
+    if (auto luks = container::Luks::open(node.device); luks && !luks->info().supported) return "cannot open in-process: " + luks->info().unsupportedWhy;
+    return {};
+}
+
+// Locked means "a passphrase would open it": an unsupported container is not offered for unlocking.
+bool isLocked(const Node& node) {
+    if (!isLuks(node)) return false;
     for (const auto& c : node.children)
         if (c.kind == NodeKind::Decrypted) return false;
-    return true;
+    return unsupportedReason(node).empty();
 }
 
 bool readable(const Node& node) {
@@ -144,7 +161,6 @@ void appendContentRows(std::vector<DetailRow>& rows, const Node& node) {
             for (const auto& s : li.slots) slots += (slots.empty() ? "" : ", ") + std::to_string(s.id) + " " + s.kdf + (s.active ? "" : " (inactive)");
             rows.push_back({"key slots", slots.empty() ? "none" : slots});
             rows.push_back({"payload", "at " + sizeBinary(li.payloadOffset) + " · " + sizeText(li.payloadSize)});
-            if (!li.supported) rows.push_back({"note", "cannot open in-process: " + li.unsupportedWhy, false});
         }
     }
 }
@@ -590,6 +606,13 @@ NodeDetails nodeDetails(const Node& root, const NodePath& path) {
         }
     }
     d.issues = issuesOf(node);
+    // A container we cannot open says so where the Unlock button would have been; the probe's own
+    // note (present once a passphrase was tried) already carries the same text, so add it only once.
+    if (const std::string why = unsupportedReason(node); !why.empty()) {
+        bool said = false;
+        for (const auto& i : d.issues) said = said || i.code == "luks.unsupported";
+        if (!said) d.issues.insert(d.issues.begin(), Issue{Validity::Info, "luks.unsupported", why, false});
+    }
     if (node.content) d.subvolumes = node.content->subvolumes();
     d.canBrowse = readable(node);
     d.canInspect = node.table || node.content;

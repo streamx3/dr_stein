@@ -21,9 +21,26 @@ struct MountRecord {
     int id = 0;
     std::filesystem::path mountpoint;
     std::string what;             // "ext4 "fedora" in ws-2026-10-04.stein"
+    std::string sourceId;         // the open source the node belongs to ("image:/…", "disk:…"); "" when unknown
+    std::vector<int> nodePath;    // the node inside it (core::NodePath), so views can find their own mounts
     bool running = false;
     std::string error;            // why the loop ended, if it failed
 };
+
+// What to mount: the description for the Mounts list, the name the directory (and, on
+// macOS, the Finder volume) takes, and which node of which source it is.
+struct MountRequest {
+    std::string what;
+    std::string name;             // the filesystem label when it has one, else the node's name; sanitised by mountDirectoryName()
+    std::string sourceId;
+    std::vector<int> nodePath;
+    std::optional<std::filesystem::path> mountpoint;   // explicit; otherwise <tmp>/drstein-mounts/<name>
+};
+
+// The directory name a mount gets: the label, sanitised for a path component and for Finder
+// (no separators, no control characters, not hidden, at most 64 bytes), else `fallback`
+// treated the same way, else "volume".
+std::string mountDirectoryName(std::string_view label, std::string_view fallback);
 
 class MountManager {
 public:
@@ -33,11 +50,23 @@ public:
     MountManager& operator=(const MountManager&) = delete;
 
     static bool available() { return stein::mount::Mount::available(); }
-    // Mounts at `mountpoint` or, when empty, under the temp directory. Returns once the OS accepted it.
+    // Mounts at request.mountpoint or, when empty, under the temp directory as request.name
+    // (suffixed "-2", "-3"… while that name is taken). Returns once the OS accepted it.
+    stein::Expected<MountRecord> mount(std::unique_ptr<stein::fs::Reader> reader, MountRequest request);
+    // The short form: description only, directory "volume".
     stein::Expected<MountRecord> mount(std::unique_ptr<stein::fs::Reader> reader, std::string what, std::optional<std::filesystem::path> mountpoint = {});
     std::vector<MountRecord> list() const;
+    std::optional<MountRecord> find(const std::string& sourceId, const std::vector<int>& nodePath) const;
+    std::optional<MountRecord> findByMountpoint(const std::filesystem::path& mountpoint) const;
     stein::Expected<void> unmount(int id);
     void unmountAll();
+    // Drops every mount whose serving loop has ended or whose mountpoint the OS no longer lists
+    // (umount by hand, Finder eject): the thread is joined and the directory removed. Returns
+    // what was dropped. Cheap: reads the mount table, never touches the mounts themselves.
+    std::vector<MountRecord> reapEnded();
+    // True when the OS mount table lists `mountpoint` as a mountpoint. Reads the table only
+    // (getfsstat / /proc/self/mounts), so a stuck server cannot stall the caller. Windows: always true.
+    static bool isMounted(const std::filesystem::path& mountpoint);
 
 private:
     struct Entry {

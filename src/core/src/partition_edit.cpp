@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <map>
+#include <set>
 
 namespace drstein::core {
 
@@ -71,22 +72,45 @@ Expected<void> EditSession::createTable(pt::TableType type) { return m_stack->pu
 
 namespace {
 
-// The table counts the extended container's interior as free (logicals fill it), so the
-// candidates for a new partition depend on what is being added: a logical may only use the
-// inside, a primary only the outside. Regions that straddle the container are cut.
-std::vector<pt::FreeRegion> candidateRegions(std::vector<pt::FreeRegion> free, const pt::Partition* extended, bool logical, SectorCount minSectors) {
+// Where a new partition may go by default. The table counts the extended container's interior as
+// free (logicals fill it), so the candidates depend on what is being added: a primary may only
+// use the outside, and regions that straddle the container are cut at its edges.
+std::vector<pt::FreeRegion> primaryCandidates(const pt::PartitionTable& table, const pt::Partition* extended, SectorCount align) {
+    auto free = table.freeRegions(align);
     if (!extended) return free;
     std::vector<pt::FreeRegion> out;
     auto keep = [&](Lba first, Lba last) {
-        if (last >= first && last - first + 1 >= minSectors) out.push_back({first, last});
+        if (last >= first && last - first + 1 >= align) out.push_back({first, last});
     };
     for (const auto& f : free) {
-        if (logical) {
-            keep(std::max(f.firstLba, extended->firstLba), std::min(f.lastLba, extended->lastLba));
-            continue;
-        }
         if (f.firstLba < extended->firstLba) keep(f.firstLba, std::min(f.lastLba, extended->firstLba - 1));
         if (f.lastLba > extended->lastLba) keep(std::max(f.firstLba, extended->lastLba + 1), f.lastLba);
+    }
+    return out;
+}
+
+// A logical may only use the inside, less what the EBRs need. freeRegions() knows nothing of EBRs
+// (they are not partitions), so each gap is cut by hand: the new logical's own EBR takes
+// kDefaultEbrGap sectors at the gap's start (where the library puts it), and the logical behind
+// the gap keeps the sector its EBR is in, so the gap ends at ebrLba - 1. When that EBR is the
+// chain's head (the container's first sector, which a newcomer in front takes over) or sits at
+// the gap's start, the chain relocates it to the default gap before that logical's data, and the
+// gap ends there instead. A gap too small for an EBR gap plus one aligned unit of data is no
+// candidate: it used to win as "largest" and yield a one-sector logical on top of the next
+// partition, and a gap that was not the container's tail used to end on the next EBR's sector,
+// which the chain then had no room for.
+std::vector<pt::FreeRegion> logicalCandidates(const pt::PartitionTable& table, const pt::Partition& extended, SectorCount align) {
+    constexpr Lba gap = pt::MbrTable::kDefaultEbrGap;
+    std::vector<pt::FreeRegion> out;
+    for (const auto& f : table.freeRegions(1)) {
+        const Lba first = std::max(f.firstLba, extended.firstLba);
+        Lba last = std::min(f.lastLba, extended.lastLba);
+        for (const auto& q : table.partitions()) {
+            if (!q.isLogical || q.firstLba != f.lastLba + 1) continue;   // the logical right behind the gap
+            const Lba cap = q.ebrLba && *q.ebrLba > first ? *q.ebrLba - 1 : (q.firstLba > gap ? q.firstLba - 1 - gap : 0);
+            last = std::min(last, cap);
+        }
+        if (last >= first && last - first + 1 >= gap + align) out.push_back({first, last});
     }
     return out;
 }
@@ -111,16 +135,10 @@ Expected<void> EditSession::addPartition(const AddPartitionForm& form) {
         if (!table.limits().supportsLogical) return fail(ErrorCategory::Unsupported, "only MBR tables have logical partitions");
         if (!extended) return fail(ErrorCategory::NotFound, "no extended partition to hold a logical partition");
         p.isLogical = true;
-        if (p.index == 0) {
-            // The library would pick this slot itself; naming it here lets the pending text say which.
-            p.index = 5;
-            for (const auto& q : table.partitions())
-                if (q.isLogical) p.index = std::max(p.index, q.index + 1);
-        }
     }
     // Default placement: the largest free region, start aligned to 1 MiB (what sgdisk does).
     const SectorCount align = std::max<SectorCount>(1, (1 * MiB) / ss);
-    auto free = candidateRegions(table.freeRegions(align), extended, form.logical, align);
+    const auto free = form.logical ? logicalCandidates(table, *extended, align) : primaryCandidates(table, extended, align);
     if (free.empty() && form.startText.empty())
         return fail(ErrorCategory::OutOfRange, form.logical ? "no free space inside the extended partition" : "no free space in the table");
     pt::FreeRegion target;
@@ -137,6 +155,17 @@ Expected<void> EditSession::addPartition(const AddPartitionForm& form) {
         // container's start), so its data begins that far into the region, not at its edge.
         const Lba earliest = form.logical ? target.firstLba + pt::MbrTable::kDefaultEbrGap : target.firstLba;
         p.firstLba = ((earliest + align - 1) / align) * align;
+    }
+    if (form.logical && p.index == 0) {
+        // MBR numbers logicals by their place in the EBR chain, so this one's slot is 5 plus the
+        // logicals in front of it. The table API takes that number only while it is free (an add at
+        // the chain's end); inserting in front renumbers those behind, which it cannot express, so
+        // the slot stays unnamed in the pending text rather than named wrongly. The preview, re-read
+        // from the chain, shows the real one.
+        std::uint32_t slot = 5;
+        for (const auto& q : table.partitions())
+            if (q.isLogical && q.firstLba < p.firstLba) ++slot;
+        if (!table.find(slot)) p.index = slot;
     }
     if (!form.endText.empty()) {
         auto e = parseLba(form.endText, ss);
@@ -206,14 +235,14 @@ void EditSession::clear() { m_stack->clear(); }
 Expected<ops::OperationStack::ApplyResult> EditSession::apply(Progress& progress) {
     auto r = m_stack->apply(progress);
     if (!r) return r;
-    // The kernel keeps its own copy of a real disk's table; ask it to pick ours up. A refusal
-    // (a mounted partition keeps the old layout busy) is a note, not a failed apply: the bytes
-    // are on the disk and the probe reads them, only the OS's partition nodes lag behind.
+    // The kernel keeps its own copy of a real disk's table; ask it to pick ours up, and tell the
+    // user what that did (tableRereadNote): on macOS the call does nothing, the kernel re-reads
+    // when this session's writable handle closes, so the report must not say it re-read now.
     if (m_source.kind == SourceKind::Disk) {
-        if (auto rr = platform::current().rereadPartitionTable(m_source.path); !rr)
-            r->report.addLine("note: the OS did not re-read the partition table: " + rr.error().message() + "; reconnect the disk or reboot before mounting");
-        else
-            r->report.addDetail("partition table re-read", "asked the OS");
+        auto& platform = platform::current();   // rereadPartitionTable is not const
+        const auto note = tableRereadNote(platform.name(), platform.rereadPartitionTable(m_source.path));
+        if (note.happened) r->report.addDetail("partition table re-read", note.text);
+        else r->report.addLine("note: " + note.text);
     }
     return r;
 }
@@ -221,14 +250,11 @@ Expected<void> EditSession::refresh() { return m_stack->refresh(); }
 
 std::vector<PendingRow> pendingRows(const ops::OperationStack& stack) {
     std::vector<PendingRow> out;
-    const bool mbr = stack.preview().table && stack.preview().table->type() == pt::TableType::Mbr;
     int n = 1;
     for (const auto& e : stack.pending()) {
         PendingRow r;
         r.n = n++;
-        r.title = e.description;
-        // The library's text names the slot but not primary/logical; on MBR slots 5+ are logicals.
-        if (mbr && r.title.starts_with("Add partition ") && std::strtoul(r.title.c_str() + 14, nullptr, 10) >= 5) r.title.replace(0, 13, "Add logical partition");
+        r.title = e.description;   // says primary or logical itself; the preview's table type is no guide to an earlier op
         for (const auto& j : e.jobTitles) r.detail += (r.detail.empty() ? "" : " · ") + j;
         r.destructive = e.destructive;
         out.push_back(std::move(r));
@@ -244,15 +270,70 @@ std::string typeCodeOf(const pt::Partition& p) {
     return p.type.code();
 }
 
-// Colour per partition index, in base order; new indices continue the sequence.
-std::map<std::uint32_t, int> colourMap(const probe::Node& base, const probe::Node& preview) {
-    std::map<std::uint32_t, int> colours;
+// Which base partition each preview partition continues, preview index to base index. GPT and APM
+// entries and MBR primaries keep their slot and pair by index. MBR numbers logicals by their place
+// in the EBR chain on every read, so adding or deleting one in front renumbers those behind it: a
+// logical pairs with the base logical its data overlaps (a resize keeps most of it), else with the
+// one that kept its index (a move to a disjoint place), else it is new.
+std::map<std::uint32_t, std::uint32_t> pairPartitions(const probe::Node& base, const probe::Node& preview) {
+    std::map<std::uint32_t, std::uint32_t> pairs;
+    if (!base.table || !preview.table) return pairs;
+    std::set<std::uint32_t> taken;
+    std::vector<const pt::Partition*> logicals;
+    for (const auto& p : preview.table->partitions()) {
+        if (p.isLogical) {
+            logicals.push_back(&p);
+            continue;
+        }
+        if (const auto* b = base.table->find(p.index); b && !b->isLogical) {
+            pairs[p.index] = b->index;
+            taken.insert(b->index);
+        }
+    }
+    for (const auto* p : logicals) {
+        const pt::Partition* best = nullptr;
+        SectorCount overlap = 0;
+        for (const auto& b : base.table->partitions()) {
+            if (!b.isLogical || taken.count(b.index) || !b.overlaps(*p)) continue;
+            const SectorCount o = std::min(b.lastLba, p->lastLba) - std::max(b.firstLba, p->firstLba) + 1;
+            if (o > overlap) {
+                best = &b;
+                overlap = o;
+            }
+        }
+        if (best) {
+            pairs[p->index] = best->index;
+            taken.insert(best->index);
+        }
+    }
+    for (const auto* p : logicals) {
+        if (pairs.count(p->index)) continue;
+        if (const auto* b = base.table->find(p->index); b && b->isLogical && !taken.count(b->index)) {
+            pairs[p->index] = b->index;
+            taken.insert(b->index);
+        }
+    }
+    return pairs;
+}
+
+// Colours per partition on either side: base partitions in base order (the order segments()
+// colours the base bar in), a preview partition in its base partner's colour, a new one continuing
+// the sequence. Keyed per side because a renumbered logical has a different index on each.
+struct Colours {
+    std::map<std::uint32_t, int> base, preview;
+};
+Colours colourMap(const probe::Node& base, const probe::Node& preview, const std::map<std::uint32_t, std::uint32_t>& pairs) {
+    Colours c;
     int next = 0;
-    for (const auto& c : base.children)
-        if (c.kind == probe::NodeKind::Partition && c.partition && !c.partition->isExtended) colours[c.partition->index] = next++;
-    for (const auto& c : preview.children)
-        if (c.kind == probe::NodeKind::Partition && c.partition && !c.partition->isExtended && !colours.count(c.partition->index)) colours[c.partition->index] = next++;
-    return colours;
+    for (const auto& n : base.children)
+        if (n.kind == probe::NodeKind::Partition && n.partition && !n.partition->isExtended) c.base[n.partition->index] = next++;
+    for (const auto& n : preview.children) {
+        if (n.kind != probe::NodeKind::Partition || !n.partition || n.partition->isExtended) continue;
+        const auto pair = pairs.find(n.partition->index);
+        if (pair != pairs.end() && c.base.count(pair->second)) c.preview[n.partition->index] = c.base.at(pair->second);
+        else c.preview[n.partition->index] = next++;
+    }
+    return c;
 }
 
 } // namespace
@@ -261,21 +342,20 @@ std::vector<Segment> baseSegments(const probe::Node& base) { return segments(bas
 
 std::vector<Segment> previewSegments(const probe::Node& base, const probe::Node& preview) {
     auto segs = segments(preview);
-    const auto colours = colourMap(base, preview);
+    const auto colours = colourMap(base, preview, pairPartitions(base, preview));
     for (auto& s : segs) {
         const probe::Node* n = nodeAt(preview, s.path);
-        if (n && n->partition) s.colorIndex = colours.at(n->partition->index);
+        if (!n || !n->partition) continue;
+        if (const auto it = colours.preview.find(n->partition->index); it != colours.preview.end()) s.colorIndex = it->second;
     }
     return segs;
 }
 
 std::vector<PreviewRow> previewRows(const probe::Node& base, const probe::Node& preview) {
     std::vector<PreviewRow> out;
-    const auto colours = colourMap(base, preview);
-    std::map<std::uint32_t, const pt::Partition*> before;
-    if (base.table)
-        for (const auto& p : base.table->partitions()) before[p.index] = &p;
-    std::map<std::uint32_t, bool> seen;
+    const auto pairs = pairPartitions(base, preview);
+    const auto colours = colourMap(base, preview, pairs);
+    std::set<std::uint32_t> kept;   // base indices some preview partition continues
     for (std::size_t i = 0; i < preview.children.size(); ++i) {
         const auto& c = preview.children[i];
         if (c.kind != probe::NodeKind::Partition && c.kind != probe::NodeKind::Free) continue;
@@ -291,18 +371,19 @@ std::vector<PreviewRow> previewRows(const probe::Node& base, const probe::Node& 
         }
         if (!c.partition) continue;
         const auto& p = *c.partition;
-        seen[p.index] = true;
-        r.colorIndex = colours.count(p.index) ? colours.at(p.index) : -1;
+        r.colorIndex = colours.preview.count(p.index) ? colours.preview.at(p.index) : -1;
         r.index = static_cast<int>(p.index);
         r.typeCode = typeCodeOf(p);
         r.name = displayName(c);
         r.sizeText = sizeBinaryOrDecimal(c.region.length);
-        auto it = before.find(p.index);
-        if (it == before.end()) {
+        const auto pair = pairs.find(p.index);
+        const pt::Partition* partner = pair != pairs.end() && base.table ? base.table->find(pair->second) : nullptr;
+        if (!partner) {
             r.change = "new";
             r.changed = true;
         } else {
-            const auto& b = *it->second;
+            const auto& b = *partner;
+            kept.insert(b.index);
             std::vector<std::string> changes;
             if (b.name != p.name) {
                 changes.push_back("rename");
@@ -327,7 +408,7 @@ std::vector<PreviewRow> previewRows(const probe::Node& base, const probe::Node& 
     if (base.table) {
         const std::uint32_t ss = base.table->geometry().logicalSectorSize;
         for (const auto& c : base.children) {
-            if (c.kind != probe::NodeKind::Partition || !c.partition || seen.count(c.partition->index)) continue;
+            if (c.kind != probe::NodeKind::Partition || !c.partition || kept.count(c.partition->index)) continue;
             PreviewRow r;
             r.name = displayName(c);
             r.typeCode = typeCodeOf(*c.partition);
@@ -335,7 +416,7 @@ std::vector<PreviewRow> previewRows(const probe::Node& base, const probe::Node& 
             r.change = "delete";
             r.index = static_cast<int>(c.partition->index);
             r.changed = r.deleted = true;
-            r.colorIndex = colours.count(c.partition->index) ? colours.at(c.partition->index) : -1;
+            r.colorIndex = colours.base.count(c.partition->index) ? colours.base.at(c.partition->index) : -1;
             out.push_back(std::move(r));
         }
     }
@@ -374,6 +455,12 @@ std::vector<PartitionTypeChoice> partitionTypeChoices(pt::TableType scheme) {
         return a.name < b.name;
     });
     return out;
+}
+
+TableRereadNote tableRereadNote(std::string_view platformName, const Expected<void>& reread) {
+    if (!reread) return {false, "the OS did not re-read the partition table: " + reread.error().message() + "; reconnect the disk or reboot before mounting"};
+    if (platformName == "macos") return {false, "macOS re-reads the partition table when the editor closes the disk; until then the OS's partition list lags behind what is on it"};
+    return {true, "asked the OS"};
 }
 
 } // namespace drstein::core

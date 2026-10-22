@@ -97,9 +97,10 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     currentIndex: Math.max(0, window.viewIds.indexOf(Workspace.view))
                     TopologyView {
-                        onUnlockRequested: { passphraseDialog.what = "unlock " + Workspace.title; passphraseDialog.callback = null; passphraseDialog.open() }
-                        // The Browse view's browser already follows the selection and owns the FUSE mount path.
-                        onMountRequested: browseView.browser.mount()
+                        onUnlockRequested: (what) => { passphraseDialog.what = "unlock " + what; passphraseDialog.callback = null; passphraseDialog.allowEmpty = false; passphraseDialog.open() }
+                        onVeraCryptRequested: (what) => { passphraseDialog.what = "try VeraCrypt on " + what; passphraseDialog.callback = function(p) { Workspace.tryVeraCrypt(p) }; passphraseDialog.allowEmpty = false; passphraseDialog.open() }
+                        // The workspace mounts the selected node itself: label-named directory, toast with Reveal.
+                        onMountRequested: Workspace.mountSelected()
                     }
                     HexView {
                         id: hexView
