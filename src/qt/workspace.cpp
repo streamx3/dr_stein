@@ -254,8 +254,9 @@ void Workspace::openImage(const QUrl& url) { openImagePath(url.isLocalFile() ? u
 
 void Workspace::addImagePath(const QString& path) {
     const std::string id = "image:" + ss(QFileInfo(path).absoluteFilePath());
-    const auto known = imagePassphrasesFor(id);
+    auto known = imagePassphrasesFor(id);
     auto d = core::describeImageFile(ss(path), known.empty() ? std::string{} : known.front());
+    wipeAll(known);   // a copy of the session's list; the describe has had it
     if (!d) {
         Q_EMIT error(errorToVariant(d.error()));
         return;
@@ -316,6 +317,8 @@ core::MasterKeys Workspace::masterKeysFor(const std::string& id) const {
     return it == m_masterKeys.end() ? core::MasterKeys{} : it->second;
 }
 
+void Workspace::wipeSecrets(std::vector<std::string>& list) { wipeAll(list); }
+
 void Workspace::forgetPassphrases(const std::string& id) {
     if (auto it = m_passphrases.find(id); it != m_passphrases.end()) {
         wipeAll(it->second);
@@ -329,6 +332,7 @@ void Workspace::forgetPassphrases(const std::string& id) {
         core::wipeMasterKeys(it->second);
         m_masterKeys.erase(it);
     }
+    m_tcryptSources.erase(id);
     if (m_pendingUnlock && m_pendingUnlock->sourceId == id) {
         wipe(m_pendingUnlock->passphrase);
         m_pendingUnlock.reset();
@@ -342,6 +346,7 @@ void Workspace::clearPassphrases() {
     m_imagePassphrases.clear();
     for (auto& [id, keys] : m_masterKeys) core::wipeMasterKeys(keys);
     m_masterKeys.clear();
+    m_tcryptSources.clear();
     if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
     m_pendingUnlock.reset();
 }
@@ -361,12 +366,19 @@ void Workspace::select(const QString& idIn) {
 
 void Workspace::openSourceAsync(const std::string& id, bool silentOnError) {
     const core::SourceDescriptor* d = m_sources.find(id);
-    if (!d) return;
+    if (!d) {
+        // Gone (unplugged, closed) since the request: an unlock waiting on this open has nothing to judge.
+        if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
+        m_pendingUnlock.reset();
+        return;
+    }
     core::SourceDescriptor desc = *d;
     core::OpenOptions options;
     options.passphrases = containerPassphrasesFor(id);
     options.imagePassphrases = imagePassphrasesFor(id);
-    options.tcrypt = std::exchange(m_tcryptOnce, false);   // one probe, then back to the cheap default
+    // One probe on request, then back to the cheap default; except on a source where the trial found a
+    // volume, which only the trial can show again.
+    options.tcrypt = std::exchange(m_tcryptOnce, false) || m_tcryptSources.contains(id);
     options.masterKeys = masterKeysFor(id);                 // unlocked once this session: the probe skips the KDF
     // What the job hands back: the open itself, the keys the passphrases produced on the way (for the
     // cache) and whether the job's Cancel reached a key derivation. Written on the job thread, read in
@@ -462,31 +474,33 @@ void Workspace::openSourceAsync(const std::string& id, bool silentOnError) {
 }
 
 void Workspace::finishPendingUnlock(bool ok, bool cancelled) {
-    if (cancelled) {
-        // The job's Cancel stopped a key derivation, so nothing was refuted. The user said stop,
-        // though: the passphrase of the unlock in flight goes too, or the next hot-plug refresh would
-        // quietly start the same slow unlock all over again.
-        const bool container = m_pendingUnlock && !m_pendingUnlock->image;
-        Q_EMIT error(toast("Unlock cancelled", container ? "Nothing was unlocked on " + qs(m_pendingUnlock->name) + "." : "Nothing was unlocked; locked containers stay as they are.", "info"));
-        if (container) {
-            forgetOne(m_passphrases[m_pendingUnlock->sourceId], m_pendingUnlock->passphrase);
-            wipe(m_pendingUnlock->passphrase);
-            m_pendingUnlock.reset();
-            return;
-        }
+    // `cancelled`: the job's Cancel stopped a key derivation, so nothing was refuted. The probe may
+    // still have opened the container this unlock was for before it moved on to another one, so the
+    // verdict comes first and "nothing was unlocked" is said only when that node is still locked.
+    if (!m_pendingUnlock) {
+        if (cancelled) Q_EMIT error(toast("Unlock cancelled", "Nothing was unlocked; locked containers stay as they are.", "info"));
+        return;
     }
-    if (!m_pendingUnlock) return;
     PendingUnlock pu = std::move(*m_pendingUnlock);
     m_pendingUnlock.reset();
+    const QString name = qs(pu.name);
+    auto forget = [&] { forgetOne(pu.image ? m_imagePassphrases[pu.sourceId] : m_passphrases[pu.sourceId], pu.passphrase); };
     auto wrong = [&] {
-        forgetOne(pu.image ? m_imagePassphrases[pu.sourceId] : m_passphrases[pu.sourceId], pu.passphrase);
-        if (pu.tcrypt) Q_EMIT error(toast("Nothing unlocked", "No VeraCrypt or TrueCrypt header on " + qs(pu.name) + " opens with that passphrase.", "warning"));
-        else Q_EMIT error(toast("Wrong passphrase", "Wrong passphrase for " + qs(pu.name) + ".", "error"));
+        forget();
+        if (pu.tcrypt) Q_EMIT error(toast("Nothing unlocked", "No VeraCrypt or TrueCrypt header on " + name + " opens with that passphrase.", "warning"));
+        else Q_EMIT error(toast("Wrong passphrase", "Wrong passphrase for " + name + ".", "error"));
+    };
+    // The user said stop while this unlock's derivation ran: the passphrase goes too, or the next
+    // hot-plug refresh would quietly start the same slow unlock all over again.
+    auto stopped = [&] {
+        forget();
+        Q_EMIT error(toast("Unlock cancelled", "Nothing was unlocked on " + name + ".", "info"));
     };
     if (pu.image) {
         // The file either opened or did not; with the image passphrases apart from the
         // containers' there is nothing else a failed open can mean.
         if (!ok) wrong();
+        else if (cancelled) Q_EMIT error(toast("Unlock cancelled", "The image is open; its locked containers stay as they are.", "info"));
     } else if (ok && m_current && m_currentId == pu.sourceId) {
         // The node the user unlocked: by path while the tree still agrees on what sits there, else
         // by uuid (a probe can shift indices when a region appears or disappears).
@@ -496,21 +510,30 @@ void Workspace::finishPendingUnlock(bool ok, bool cancelled) {
             path.clear();
             node = findByUuid(m_current->tree, pu.uuid, path);
         }
-        if (node) {
-            bool opened = false;
-            for (std::size_t i = 0; i < node->children.size() && !opened; ++i)
-                if (node->children[i].kind == stein::probe::NodeKind::Decrypted) {
-                    core::NodePath child = path;
-                    child.push_back(static_cast<int>(i));
-                    selectPath(pathToVariant(child));   // the tree speaks; no toast
-                    opened = true;
-                }
-            if (!opened) {
-                const int row = m_topology.rowForPath(path);
-                const bool locked = row >= 0 && m_topology.rows()[static_cast<std::size_t>(row)].isLockedContainer;
-                if (locked || pu.tcrypt) wrong();
-            }
+        int decrypted = -1;
+        if (node)
+            for (std::size_t i = 0; i < node->children.size() && decrypted < 0; ++i)
+                if (node->children[i].kind == stein::probe::NodeKind::Decrypted) decrypted = static_cast<int>(i);
+        if (!node) {
+            if (cancelled) stopped();
+        } else if (decrypted >= 0) {
+            core::NodePath child = path;
+            child.push_back(decrypted);
+            selectPath(pathToVariant(child));   // the tree speaks; no toast
+            // No key hook for VeraCrypt: this source keeps the trial on, or a re-probe would lose the volume.
+            if (pu.tcrypt) m_tcryptSources.insert(pu.sourceId);
+            if (cancelled) Q_EMIT error(toast("Unlock cancelled", name + " is open; the other containers stay as they are.", "info"));
+        } else {
+            // Still locked. The open put the selection on the device row; back to the node the
+            // passphrase was for, so its Unlock button stays where the user left it.
+            selectPath(pathToVariant(path));
+            const int row = m_topology.rowForPath(path);
+            const bool locked = row >= 0 && m_topology.rows()[static_cast<std::size_t>(row)].isLockedContainer;
+            if (cancelled) stopped();
+            else if (locked || pu.tcrypt) wrong();
         }
+    } else if (cancelled) {
+        stopped();
     }
     wipe(pu.passphrase);
 }
@@ -731,8 +754,20 @@ QString Workspace::unlockLabel() const {
 void Workspace::unlock(const QString& passphrase) {
     const std::string id = m_currentId.empty() ? m_selectedSourceId : m_currentId;
     if (id.empty() || passphrase.isEmpty()) return;
-    const std::string p = ss(passphrase);
+    // Nothing is stored before these two checks: a passphrase kept here without a probe to judge it
+    // would be retried, in silence, by every later probe of the source.
+    if (JobRunner::instance()->running()) {
+        // The probe in flight keeps its pending verdict; the job runner would refuse a second one anyway.
+        Q_EMIT error(toast("Busy", "An operation is still running; wait for it to finish before unlocking.", "warning"));
+        return;
+    }
     const auto* d = m_sources.find(id);
+    if (!d) {
+        // Unplugged or closed while the dialog was open.
+        Q_EMIT error(toast("Source is gone", "The device or image is no longer available; the passphrase was not kept.", "warning"));
+        return;
+    }
+    std::string p = ss(passphrase);   // wiped at the end; the list and the pending unlock hold their own copies
     PendingUnlock pending;
     pending.sourceId = id;
     pending.passphrase = p;
@@ -758,6 +793,7 @@ void Workspace::unlock(const QString& passphrase) {
     }
     if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
     m_pendingUnlock = std::move(pending);
+    wipe(p);
     openSourceAsync(id, false);
 }
 
@@ -766,7 +802,16 @@ void Workspace::tryVeraCrypt(const QString& passphrase) {
     if (id.empty() || !m_current || passphrase.isEmpty() || m_selectedMetadata >= 0) return;
     const auto* node = core::nodeAt(m_current->tree, m_selectedPath);
     if (!node) return;
-    const std::string p = ss(passphrase);
+    // Same two gates as unlock(): a trial that cannot start must not leave its passphrase behind.
+    if (JobRunner::instance()->running()) {
+        Q_EMIT error(toast("Busy", "An operation is still running; wait for it to finish before trying VeraCrypt.", "warning"));
+        return;
+    }
+    if (!m_sources.find(id)) {
+        Q_EMIT error(toast("Source is gone", "The device or image is no longer available; the passphrase was not kept.", "warning"));
+        return;
+    }
+    std::string p = ss(passphrase);
     addUnique(m_passphrases[id], p);
     PendingUnlock pending;
     pending.sourceId = id;
@@ -777,6 +822,7 @@ void Workspace::tryVeraCrypt(const QString& passphrase) {
     pending.tcrypt = true;
     if (m_pendingUnlock) wipe(m_pendingUnlock->passphrase);
     m_pendingUnlock = std::move(pending);
+    wipe(p);
     m_tcryptOnce = true;
     openSourceAsync(id, false);
 }

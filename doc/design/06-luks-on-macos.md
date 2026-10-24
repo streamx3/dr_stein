@@ -538,3 +538,22 @@ Then a LUKS USB stick made the same way (GNOME Disks, or `cryptsetup
 luksFormat /dev/sdX` with ext4 and a few files inside) for the hands-on test on
 this Mac: the elevated relaunch with `DRSTEIN_SOURCE`, the passphrase prompt,
 the label-named mount in Finder, and `sudo stein probe /dev/rdiskN`.
+
+## Review round, 2026-10-24
+
+An adversarial review of the LUKS commits found 27 candidates; every one that
+was tried held. Fixed in libstein `9f1f1a1`-era commit (see git log) and the
+app: a hostile header can no longer make the unlock allocate gigabytes or run
+the KDF before the key size is checked (slots are settled at parse time with a
+reason); a wiped primary LUKS2 header is detected from the secondary copy and
+unlocks; `iv_tweak` counts 512-byte sectors as dm-crypt does; key material is
+wiped after use (`stein/core/secure.hpp`); a bad sector no longer blacks out
+the whole 256 KiB cache chunk around it; UTF-8 labels survive to the mount
+name. App: Unlock and the passphrase dialog refuse while a job runs instead
+of dropping the verdict in flight; a VeraCrypt volume found once stays found
+across re-probes; the mount watchdog reads the mount table only; facades no
+longer carry key copies they do not use; the dialog clears its field.
+Still open from that round: VeraCrypt has no key hook or cancel in libstein;
+cipher key schedules are not wiped on destruction; the app's details card
+could say "header only" for a detached header opened alone.
+

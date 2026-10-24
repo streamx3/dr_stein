@@ -20,6 +20,10 @@ namespace drstein::core {
 struct MountRecord {
     int id = 0;
     std::filesystem::path mountpoint;
+    // `mountpoint` with its symlinks resolved, once, before the mount went live ($TMPDIR on macOS sits
+    // under /var, which is /private/var): the OS table may list either spelling. Never re-resolved,
+    // since a stat of a live mountpoint is a round trip to the server behind it.
+    std::filesystem::path realMountpoint;
     std::string what;             // "ext4 "fedora" in ws-2026-10-04.stein"
     std::string sourceId;         // the open source the node belongs to ("image:/…", "disk:…"); "" when unknown
     std::vector<int> nodePath;    // the node inside it (core::NodePath), so views can find their own mounts
@@ -64,9 +68,16 @@ public:
     // (umount by hand, Finder eject): the thread is joined and the directory removed. Returns
     // what was dropped. Cheap: reads the mount table, never touches the mounts themselves.
     std::vector<MountRecord> reapEnded();
-    // True when the OS mount table lists `mountpoint` as a mountpoint. Reads the table only
-    // (getfsstat / /proc/self/mounts), so a stuck server cannot stall the caller. Windows: always true.
-    static bool isMounted(const std::filesystem::path& mountpoint);
+    // True when the OS mount table lists `mountpoint`, or `alias` (a second spelling of the same
+    // directory, symlinks resolved), as a mountpoint. Reads the table only (getfsstat with MNT_NOWAIT /
+    // /proc/self/mounts) and never looks at the path itself, so a stuck server cannot stall the
+    // caller. Windows: always true.
+    static bool isMounted(const std::filesystem::path& mountpoint, const std::filesystem::path& alias = {});
+    // The directory a mount called `name` (already sanitised) gets under `base`: `name`, else
+    // "name-2", "name-3"… while the candidate is taken. Taken is asked of the mount table first, then
+    // of the disk: a stale directory of a crashed run may still be a mountpoint, and a stat of one
+    // whose server is gone does not return.
+    static std::filesystem::path pickMountDirectory(const std::filesystem::path& base, const std::string& name);
 
 private:
     struct Entry {

@@ -158,20 +158,24 @@ QVariantMap ToolsController::capacityTest(const QString& confirmText, bool quick
     if (!req.expectedConfirm.empty() && req.confirmText != req.expectedConfirm)
         return errorToVariant(stein::Error(stein::ErrorCategory::InvalidArgument, "type " + req.expectedConfirm + " to confirm"));
     const core::SourceDescriptor target = c->descriptor;
-    const std::vector<std::string> passphrases = Workspace::instance()->containerPassphrasesFor(target.id);
-    const std::vector<std::string> imagePassphrases = Workspace::instance()->imagePassphrasesFor(target.id);
-    const core::MasterKeys masterKeys = Workspace::instance()->masterKeysFor(target.id);
+    // openDevice() reads the passphrases (a locked .stein file) and nothing else: the master keys are
+    // the probe's, so no copy of them leaves the workspace for this job.
+    std::vector<std::string> passphrases = Workspace::instance()->containerPassphrasesFor(target.id);
+    std::vector<std::string> imagePassphrases = Workspace::instance()->imagePassphrasesFor(target.id);
     m_test.reset();
     auto result = std::make_shared<std::optional<stein::ops::CapacityTestResult>>();
     JobRunner::instance()->start(
         "Capacity test on " + qs(target.title), "tools",
-        [target, passphrases, imagePassphrases, masterKeys, req, result](stein::Progress& progress, stein::Report& report) -> stein::Expected<void> {
+        [target, passphrases, imagePassphrases, req, result](stein::Progress& progress, stein::Report& report) mutable -> stein::Expected<void> {
             core::OpenOptions o;
             o.writable = true;
-            o.passphrases = passphrases;
-            o.imagePassphrases = imagePassphrases;
-            o.masterKeys = masterKeys;
+            o.passphrases = std::move(passphrases);
+            o.imagePassphrases = std::move(imagePassphrases);
             auto dev = core::openDevice(target, o);
+            // This closure outlives the job (the thread object stays until the next one starts): the
+            // secrets end once the open has had them, whichever way it went.
+            Workspace::wipeSecrets(o.passphrases);
+            Workspace::wipeSecrets(o.imagePassphrases);
             if (!dev) return stein::fail(dev.error());
             auto r = core::runCapacityTest(**dev, req, progress, report);
             if (!r) return stein::fail(r.error());
@@ -185,6 +189,9 @@ QVariantMap ToolsController::capacityTest(const QString& confirmText, bool quick
             Q_EMIT changed();
             Workspace::instance()->reprobe();
         });
+    // The job has its own copies; this frame's end here, started or not (the runner toasts a refusal itself).
+    Workspace::wipeSecrets(passphrases);
+    Workspace::wipeSecrets(imagePassphrases);
     return {};
 }
 

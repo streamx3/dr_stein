@@ -609,9 +609,35 @@ TEST_CASE("mount directories are named after the label, sanitised; the mount tab
     // not a mountpoint stays a non-mountpoint whichever way it is spelled.
     CHECK(MountManager::isMounted("/"));
     CHECK(!MountManager::isMounted("/var/drstein-not-a-mountpoint"));
+    // The second spelling (symlinks resolved when the directory was still plain) counts the same as
+    // the first, and the check resolves nothing itself: the watchdog runs it against mountpoints whose
+    // server is this process, or gone. Either spelling in the table is a hit; neither is a miss.
+    CHECK(MountManager::isMounted("/drstein-not-a-mountpoint", "/"));
+    CHECK(MountManager::isMounted("/", "/drstein-not-a-mountpoint"));
+    CHECK(!MountManager::isMounted("/drstein-not-a-mountpoint", "/drstein-not-a-mountpoint-either"));
+    CHECK(!MountManager::isMounted("/etc/hosts/not-a-directory"));   // a path through a file: a miss, not an error
 #endif
     MountManager empty;
     CHECK(!empty.find("image:/x", {0}));
     CHECK(!empty.findByMountpoint("/nowhere"));
     CHECK(empty.reapEnded().empty());
+}
+
+TEST_CASE("the mount directory is the label, then label-2, label-3 while a directory is in the way") {
+    drstein::test::TempDir tmp;
+    const auto base = tmp.file("drstein-mounts");
+    std::filesystem::create_directories(base);
+    CHECK(MountManager::pickMountDirectory(base, "Data") == base / "Data");
+    std::filesystem::create_directories(base / "Data");
+    CHECK(MountManager::pickMountDirectory(base, "Data") == base / "Data-2");
+    std::filesystem::create_directories(base / "Data-2");
+    CHECK(MountManager::pickMountDirectory(base, "Data") == base / "Data-3");
+    CHECK(MountManager::pickMountDirectory(base, "Other") == base / "Other");
+    // A base that does not exist yet has nothing taken under it.
+    CHECK(MountManager::pickMountDirectory(tmp.file("absent"), "x") == tmp.file("absent") / "x");
+#if defined(__APPLE__) || defined(__linux__)
+    // A name the table lists as a mountpoint is taken even though no stat says so: the root, seen as
+    // the empty-named child of itself, moves the pick on to the "-2" spelling.
+    CHECK(MountManager::pickMountDirectory("/", "") != std::filesystem::path("/"));
+#endif
 }

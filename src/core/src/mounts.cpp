@@ -63,9 +63,7 @@ Expected<MountRecord> MountManager::mount(std::unique_ptr<fs::Reader> reader, Mo
         const auto base = std::filesystem::temp_directory_path(ec) / "drstein-mounts";
         std::filesystem::create_directories(base, ec);
         // The label names the directory; a second mount with the same label gets "-2", and so on.
-        // A stale directory from a crashed run counts as taken too: it may still be a mountpoint.
-        std::filesystem::path dir = base / name;
-        for (int n = 2; std::filesystem::exists(dir, ec); ++n) dir = base / (name + "-" + std::to_string(n));
+        const std::filesystem::path dir = pickMountDirectory(base, name);
 #if defined(_WIN32)
         // WinFsp wants an absent directory or a free drive letter; the directory must not exist.
         mountpoint = dir;
@@ -75,6 +73,13 @@ Expected<MountRecord> MountManager::mount(std::unique_ptr<fs::Reader> reader, Mo
 #endif
         entry->ownsDirectory = true;
     }
+    // A caller's own mountpoint that is one already would be shadowed, not served; and the resolution
+    // below must not touch a directory whose server may be gone.
+    if (request.mountpoint && isMounted(*mountpoint)) return fail(ErrorCategory::Busy, mountpoint->string() + " is already a mountpoint");
+    // Resolved once, now, while the directory is a plain one: the table may list this spelling, and the
+    // watchdog compares against both rather than stat the live mountpoint to find out.
+    std::filesystem::path real = std::filesystem::weakly_canonical(*mountpoint, ec);
+    if (ec || real.empty()) real = *mountpoint;
     // Fully qualified: <sys/mount.h> declares a global `struct mount`, which makes the bare name ambiguous.
     stein::mount::MountOptions mo;
     mo.fsName = name;   // what Finder (NFS export path) and FUSE (fsname / volname) show
@@ -85,6 +90,7 @@ Expected<MountRecord> MountManager::mount(std::unique_ptr<fs::Reader> reader, Mo
     }
     entry->mount = std::move(*m);
     entry->record.mountpoint = *mountpoint;
+    entry->record.realMountpoint = std::move(real);
     entry->record.what = std::move(request.what);
     entry->record.sourceId = std::move(request.sourceId);
     entry->record.nodePath = std::move(request.nodePath);
@@ -120,7 +126,7 @@ std::optional<MountRecord> MountManager::find(const std::string& sourceId, const
 std::optional<MountRecord> MountManager::findByMountpoint(const std::filesystem::path& mountpoint) const {
     std::lock_guard lock(m_mutex);
     for (const auto& e : m_entries)
-        if (e->record.mountpoint == mountpoint) return e->record;
+        if (e->record.mountpoint == mountpoint || e->record.realMountpoint == mountpoint) return e->record;
     return std::nullopt;
 }
 
@@ -167,7 +173,7 @@ std::vector<MountRecord> MountManager::reapEnded() {
         for (auto it = m_entries.begin(); it != m_entries.end();) {
             // The loop ended on its own (the backend noticed the unmount), or the OS has already
             // dropped the mountpoint while the loop still waits: either way the mount is gone.
-            if (!(*it)->record.running || !isMounted((*it)->record.mountpoint)) {
+            if (!(*it)->record.running || !isMounted((*it)->record.mountpoint, (*it)->record.realMountpoint)) {
                 taken.push_back(std::move(*it));
                 it = m_entries.erase(it);
             } else ++it;
@@ -181,16 +187,31 @@ std::vector<MountRecord> MountManager::reapEnded() {
     return out;
 }
 
-bool MountManager::isMounted(const std::filesystem::path& mountpoint) {
+std::filesystem::path MountManager::pickMountDirectory(const std::filesystem::path& base, const std::string& name) {
+    std::error_code ec;
+    // The table may list the base with its symlinks resolved. Resolving the base is a stat of a plain
+    // directory of ours, never of a mountpoint inside it.
+    std::filesystem::path realBase = std::filesystem::weakly_canonical(base, ec);
+    if (ec || realBase.empty()) realBase = base;
+    std::string leaf = name;
+    for (int n = 2;; ++n) {
+        const std::filesystem::path dir = base / leaf;
+        // The table first: a stale directory of a crashed run may still be a mountpoint, and exists()
+        // on one whose server is gone hangs (soft NFS waits out its timeouts, FUSE until the daemon answers).
+        if (!isMounted(dir, realBase / leaf) && !std::filesystem::exists(dir, ec)) return dir;
+        leaf = name + "-" + std::to_string(n);
+    }
+}
+
+bool MountManager::isMounted(const std::filesystem::path& mountpoint, const std::filesystem::path& alias) {
 #if defined(__APPLE__) || defined(__linux__)
     // The table may hold the path as given or with symlinks resolved ($TMPDIR on macOS sits under
-    // /var, which is /private/var); either spelling counts. weakly_canonical never fails on an
-    // existing directory, and on a vanished one falls back to the spelling we have.
-    std::error_code ec;
+    // /var, which is /private/var); the caller passes both spellings, resolved when the directory
+    // was still plain. Nothing here touches the filesystem: this runs from the watchdog, on the GUI
+    // thread, against mountpoints whose server may be this very process or gone.
     const std::string want = mountpoint.string();
-    std::string wantReal = std::filesystem::weakly_canonical(mountpoint, ec).string();
-    if (ec || wantReal.empty()) wantReal = want;
-    auto matches = [&](std::string_view on) { return on == want || on == wantReal; };
+    const std::string also = alias.string();
+    auto matches = [&](std::string_view on) { return on == want || (!also.empty() && on == also); };
 #endif
 #if defined(__APPLE__)
     // MNT_NOWAIT: the table as the kernel has it, without asking each filesystem for fresh
@@ -226,6 +247,7 @@ bool MountManager::isMounted(const std::filesystem::path& mountpoint) {
     return false;
 #else
     (void)mountpoint;
+    (void)alias;
     return true;
 #endif
 }

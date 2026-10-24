@@ -297,7 +297,7 @@ Item {
                     StButton { visible: Workspace.details.mountpoint.length === 0; text: "Mount"; small: true; enabled: Workspace.details.canMount && !JobRunner.running; onClicked: view.mountRequested(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: "Mount it read-only for the OS through " + view.mountBackend + ", at a folder named after its label; the mount lasts until you unmount it or quit" }
                     StButton { visible: Workspace.details.mountpoint.length > 0; text: "Unmount"; small: true; icon_: "eject"; enabled: !JobRunner.running; onClicked: Workspace.unmountSelected(); ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: "Unmount " + Workspace.details.mountpoint }
                     StButton { visible: Workspace.details.mountpoint.length > 0; text: Workspace.revealLabel; small: true; icon_: "folder"; onClicked: Workspace.revealPath(Workspace.details.mountpoint) }
-                    StButton { text: "Unlock…"; small: true; icon_: "unlock"; visible: Workspace.details.isLockedContainer; onClicked: view.unlockRequested(Workspace.unlockLabel()) }
+                    StButton { text: "Unlock…"; small: true; icon_: "unlock"; visible: Workspace.details.isLockedContainer; enabled: !JobRunner.running; onClicked: view.unlockRequested(Workspace.unlockLabel()) }
                     StButton {
                         text: "Try VeraCrypt…"; small: true; icon_: "key"; visible: Workspace.tcryptCandidate; enabled: !JobRunner.running
                         onClicked: view.veraCryptRequested(Workspace.unlockLabel())

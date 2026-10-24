@@ -46,10 +46,13 @@ void PartitionEditor::reload() {
     } else {
         m_sourceId = c->descriptor.id;
         core::OpenOptions o;
+        // The session opens the device only (openDevice(), no probe): the passphrases are for a locked
+        // .stein file, and the master keys would be a copy of a secret nothing here reads.
         o.passphrases = w->containerPassphrasesFor(m_sourceId);
         o.imagePassphrases = w->imagePassphrasesFor(m_sourceId);
-        o.masterKeys = w->masterKeysFor(m_sourceId);   // unlocked LUKS payloads reopen without the KDF
         auto s = core::EditSession::open(c->descriptor, o);
+        Workspace::wipeSecrets(o.passphrases);
+        Workspace::wipeSecrets(o.imagePassphrases);
         if (s) m_session.emplace(std::move(*s));
         else {
             const auto pres = core::present(s.error());

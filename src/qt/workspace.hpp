@@ -17,6 +17,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 namespace drstein::ui {
 
@@ -112,7 +113,8 @@ public:
     // Keeps the passphrase for the selected source (the image's own when the file is locked, else the
     // containers') and re-opens. Afterwards the node the user unlocked is compared with before: a
     // Decrypted child gets selected; still locked means the passphrase was wrong, which is said once
-    // and the passphrase forgotten so no later probe retries it.
+    // and the passphrase forgotten so no later probe retries it. Refused (a toast, nothing kept) while
+    // a job runs: the probe in flight keeps its verdict, and the new passphrase could not be judged.
     Q_INVOKABLE void unlock(const QString& passphrase);
     // One probe of the selected source with VeraCrypt/TrueCrypt trial decryption on, with this passphrase.
     Q_INVOKABLE void tryVeraCrypt(const QString& passphrase);
@@ -161,6 +163,9 @@ public:
     // Master keys of the containers unlocked on a source this session, by LUKS UUID: what OpenOptions::masterKeys
     // takes so a probe of the same source skips the key derivation. Never persisted; gone with the passphrases.
     core::MasterKeys masterKeysFor(const std::string& id) const;
+    // Overwrites and drops a list of passphrases: what a facade does with the copies it took from the
+    // accessors above once the open has had them (a freed heap block keeps its bytes until reused).
+    static void wipeSecrets(std::vector<std::string>& list);
     core::MountManager& mounts() { return m_mounts; }
     void reportError(const stein::Error& e) { Q_EMIT error(errorToVariantPublic(e)); }
     static QVariantMap errorToVariantPublic(const stein::Error& e);
@@ -218,6 +223,9 @@ private:
     };
     std::optional<PendingUnlock> m_pendingUnlock;
     bool m_tcryptOnce = false;             // the next open of the selected source tries VeraCrypt headers
+    // Sources where a VeraCrypt trial found a volume: their probes keep the trial on, since the probe has
+    // no key hook for VeraCrypt (unlike LUKS) and a plain re-probe would lose the volume again.
+    std::set<std::string> m_tcryptSources;
     std::string m_relaunchSource;          // the source an elevated relaunch is re-opening; prompts once when it lands
     std::vector<core::SourceDescriptor> m_images;   // opened image files, kept across refresh()
     core::MountManager m_mounts;
