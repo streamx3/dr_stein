@@ -542,8 +542,7 @@ the label-named mount in Finder, and `sudo stein probe /dev/rdiskN`.
 ## Review round, 2026-10-24
 
 An adversarial review of the LUKS commits found 27 candidates; every one that
-was tried held. Fixed in libstein `9f1f1a1`-era commit (see git log) and the
-app: a hostile header can no longer make the unlock allocate gigabytes or run
+was tried held. Fixed in libstein `41413d6` and dr_stein `9ae0afd`: a hostile header can no longer make the unlock allocate gigabytes or run
 the KDF before the key size is checked (slots are settled at parse time with a
 reason); a wiped primary LUKS2 header is detected from the secondary copy and
 unlocks; `iv_tweak` counts 512-byte sectors as dm-crypt does; key material is
