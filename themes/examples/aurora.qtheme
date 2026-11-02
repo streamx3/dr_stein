@@ -1,0 +1,66 @@
+{
+  "qtheme": 1,
+  "id": "aurora",
+  "name": "Aurora",
+  "description": "An example of what the format adds beyond the bundled palettes: inherits teal, swaps the accent, and paints a diagonal gradient with a tinted SVG wave behind the window. Not loaded by the app yet.",
+  "author": "Dr Stein",
+  "license": "MIT",
+  "version": "1.0",
+  "inherits": "teal",
+  "vars": {
+    "night": "#0a1a2a",
+    "glow": "#7fe7d6"
+  },
+  "accent": { "dark": "$glow", "light": "#1a8f84" },
+  "accent2": "#b7f0e8",
+  "schemes": {
+    "dark": {
+      "bg": "$night",
+      "surface": "#122636",
+      "background": {
+        "color": "bg",
+        "gradient": {
+          "type": "linear",
+          "angle": 135,
+          "stops": [
+            { "at": 0.0, "color": "bg" },
+            { "at": 0.55, "color": "bg" },
+            { "at": 1.0, "color": "accent.900@85%" }
+          ]
+        },
+        "image": {
+          "src": "aurora-wave.svg",
+          "fit": "cover",
+          "anchor": "bottom right",
+          "opacity": 0.16,
+          "tint": "accent",
+          "blend": "screen"
+        }
+      }
+    },
+    "light": {
+      "background": {
+        "gradient": {
+          "type": "radial",
+          "center": [0.8, 0.1],
+          "radius": 0.9,
+          "stops": [
+            { "at": 0.0, "color": "accent.800@35%" },
+            { "at": 1.0, "color": "bg" }
+          ]
+        },
+        "image": {
+          "src": "aurora-wave.svg",
+          "fit": "contain",
+          "anchor": "bottom right",
+          "scale": 0.6,
+          "opacity": 0.08,
+          "tint": "accent.600"
+        }
+      }
+    }
+  },
+  "roles": {
+    "selectedTint": "accent.800"
+  }
+}

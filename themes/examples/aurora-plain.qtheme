@@ -1,0 +1,21 @@
+{
+  "qtheme": 1,
+  "id": "aurora-plain",
+  "name": "Aurora (plain)",
+  "description": "Aurora without its artwork: inherits aurora and removes the image and the light scheme's gradient with null, keeping the accent and the dark gradient. Shows how a child trims a parent.",
+  "author": "Dr Stein",
+  "license": "MIT",
+  "version": "1.0",
+  "inherits": "aurora",
+  "schemes": {
+    "dark": { "background": { "image": null } },
+    "light": { "background": null }
+  },
+  "partitions": {
+    "swatches": [
+      { "fill": "accent.800", "text": "accent.100" },
+      { "fill": "neutral.800", "text": "textBright" },
+      { "fill": "accent.600", "text": "accent.100" }
+    ]
+  }
+}

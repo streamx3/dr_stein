@@ -1,0 +1,56 @@
+{
+  "qtheme": 1,
+  "id": "blurple",
+  "name": "Blurple",
+  "description": "Soft violet accent on blue-tinted greys, the second of the mockup's palettes.",
+  "author": "Dr Stein",
+  "license": "MIT",
+  "version": "1.0",
+  "accent": {
+    "dark": "#9184d9",
+    "light": "#796cbf"
+  },
+  "accent2": "#a7a1db",
+  "ramps": {
+    "accent": [
+      "#f5f4ff",
+      "#e7e5fe",
+      "#d2cefd",
+      "#b5abfc",
+      "#968ae0",
+      "#796cbf",
+      "#5d5294",
+      "#423a6a",
+      "#2b2741"
+    ],
+    "neutral": [
+      "#f3f5fe",
+      "#e4e7f5",
+      "#cfd3e5",
+      "#b2b6ca",
+      "#9397ab",
+      "#75798c",
+      "#595d6c",
+      "#3f424d",
+      "#292b31"
+    ]
+  },
+  "schemes": {
+    "dark": {
+      "bg": "#161826",
+      "surface": "#232532",
+      "text": "#e9e9ed",
+      "edge1": "#3f424d",
+      "edge2": "#595d6c",
+      "edge3": "#9397ab"
+    },
+    "light": {
+      "bg": "#eef0f7",
+      "surface": "#f9f9fd",
+      "text": "#1c1e2b",
+      "edge1": "#cfd3e5",
+      "edge2": "#b2b6ca",
+      "edge3": "#75798c"
+    }
+  }
+}

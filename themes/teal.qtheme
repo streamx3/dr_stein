@@ -1,0 +1,56 @@
+{
+  "qtheme": 1,
+  "id": "teal",
+  "name": "Teal",
+  "description": "The mockup's own palette: a teal accent on cool greys.",
+  "author": "Dr Stein",
+  "license": "MIT",
+  "version": "1.0",
+  "accent": {
+    "dark": "#3fc9c4",
+    "light": "#22a39f"
+  },
+  "accent2": "#7ad3cf",
+  "ramps": {
+    "accent": [
+      "#ecfffd",
+      "#cdfaf7",
+      "#a6f0ec",
+      "#6fdfda",
+      "#3fc9c4",
+      "#22a39f",
+      "#167c7a",
+      "#105857",
+      "#0b3a3a"
+    ],
+    "neutral": [
+      "#eef7f8",
+      "#dceaec",
+      "#c3d6d9",
+      "#a4b9bd",
+      "#869a9f",
+      "#687c81",
+      "#4e5f63",
+      "#374448",
+      "#23303a"
+    ]
+  },
+  "schemes": {
+    "dark": {
+      "bg": "#0c1619",
+      "surface": "#132226",
+      "text": "#dff1f2",
+      "edge1": "#24383d",
+      "edge2": "#375056",
+      "edge3": "#5f8389"
+    },
+    "light": {
+      "bg": "#e9f3f4",
+      "surface": "#f6fbfb",
+      "text": "#10272a",
+      "edge1": "#c3d6d9",
+      "edge2": "#a4b9bd",
+      "edge3": "#687c81"
+    }
+  }
+}

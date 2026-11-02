@@ -1,0 +1,56 @@
+{
+  "qtheme": 1,
+  "id": "grey",
+  "name": "Grey",
+  "description": "No hue at all: the accent is a lighter grey; status colours are the only colour left.",
+  "author": "Dr Stein",
+  "license": "MIT",
+  "version": "1.0",
+  "accent": {
+    "dark": "#a8a8a8",
+    "light": "#8a8a8a"
+  },
+  "accent2": "#c2c2c2",
+  "ramps": {
+    "accent": [
+      "#f6f6f6",
+      "#e8e8e8",
+      "#d4d4d4",
+      "#bcbcbc",
+      "#a8a8a8",
+      "#8a8a8a",
+      "#6b6b6b",
+      "#4c4c4c",
+      "#323232"
+    ],
+    "neutral": [
+      "#f0f0f0",
+      "#e0e0e0",
+      "#c8c8c8",
+      "#adadad",
+      "#8f8f8f",
+      "#727272",
+      "#565656",
+      "#3d3d3d",
+      "#282828"
+    ]
+  },
+  "schemes": {
+    "dark": {
+      "bg": "#141414",
+      "surface": "#1f1f1f",
+      "text": "#e8e8e8",
+      "edge1": "#2e2e2e",
+      "edge2": "#454545",
+      "edge3": "#7d7d7d"
+    },
+    "light": {
+      "bg": "#ededed",
+      "surface": "#f9f9f9",
+      "text": "#1a1a1a",
+      "edge1": "#cfcfcf",
+      "edge2": "#b5b5b5",
+      "edge3": "#727272"
+    }
+  }
+}

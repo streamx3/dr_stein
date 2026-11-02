@@ -1,0 +1,53 @@
+{
+  "qtheme": 1,
+  "id": "blue",
+  "name": "Blue",
+  "description": "Apple's system blue and greys, for people who want the app to sit next to Finder.",
+  "author": "Dr Stein",
+  "license": "MIT",
+  "version": "1.0",
+  "accent": "#0a84ff",
+  "accent2": "#64b5ff",
+  "ramps": {
+    "accent": [
+      "#eaf4ff",
+      "#cfe6ff",
+      "#a8d1ff",
+      "#7ab8ff",
+      "#4da3ff",
+      "#0a84ff",
+      "#0066d6",
+      "#004ea8",
+      "#003a7d"
+    ],
+    "neutral": [
+      "#f5f5f7",
+      "#e5e5ea",
+      "#d1d1d6",
+      "#c7c7cc",
+      "#aeaeb2",
+      "#8e8e93",
+      "#636366",
+      "#48484a",
+      "#2c2c2e"
+    ]
+  },
+  "schemes": {
+    "dark": {
+      "bg": "#1c1c1e",
+      "surface": "#2c2c2e",
+      "text": "#f2f2f7",
+      "edge1": "#3a3a3c",
+      "edge2": "#48484a",
+      "edge3": "#8e8e93"
+    },
+    "light": {
+      "bg": "#f2f2f7",
+      "surface": "#ffffff",
+      "text": "#1c1c1e",
+      "edge1": "#d1d1d6",
+      "edge2": "#c7c7cc",
+      "edge3": "#8e8e93"
+    }
+  }
+}

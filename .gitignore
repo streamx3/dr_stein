@@ -58,3 +58,4 @@ compile_commands.json
 # local tooling
 .claude/settings.local.json
 .qtcreator/
+__pycache__/

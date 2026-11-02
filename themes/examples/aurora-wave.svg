@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+  <!-- currentColor is replaced by the theme's tint before rendering; nothing else is recoloured. -->
+  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="M0 300 C 200 220, 400 380, 600 300 S 1000 220, 1200 300" opacity="0.9"/>
+    <path d="M0 330 C 200 250, 400 410, 600 330 S 1000 250, 1200 330" opacity="0.6"/>
+    <path d="M0 360 C 200 280, 400 440, 600 360 S 1000 280, 1200 360" opacity="0.35"/>
+    <path d="M0 270 C 200 190, 400 350, 600 270 S 1000 190, 1200 270" opacity="0.2"/>
+  </g>
+</svg>

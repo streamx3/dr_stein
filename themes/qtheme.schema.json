@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/streamx3/dr_stein/themes/qtheme.schema.json",
+  "title": "qtheme, version 1",
+  "description": "A Dr Stein theme (doc/design/07-qtheme-format.md): accent, two nine-step ramps, dark and light base colours, optional role overrides, partition swatches, background layers and typography. Structure and syntax only; reference resolution, inheritance, the SVG rules and contrast are checked by tools/qtheme_check.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["qtheme", "id", "name"],
+  "properties": {
+    "qtheme": { "const": 1 },
+    "id": { "$ref": "#/$defs/identifier" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "$ref": "#/$defs/metadata" },
+    "author": { "$ref": "#/$defs/metadata" },
+    "license": { "$ref": "#/$defs/metadata" },
+    "version": { "$ref": "#/$defs/metadata" },
+    "notes": { "$ref": "#/$defs/metadata" },
+    "inherits": { "$ref": "#/$defs/identifier" },
+    "vars": {
+      "anyOf": [
+        {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/identifier" },
+          "additionalProperties": { "$ref": "#/$defs/colour" }
+        },
+        { "type": "null" }
+      ]
+    },
+    "accent": { "$ref": "#/$defs/colourOrPair" },
+    "accent2": { "anyOf": [{ "$ref": "#/$defs/colourOrPair" }, { "type": "null" }] },
+    "ramps": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "accent": { "$ref": "#/$defs/ramp" },
+            "neutral": { "$ref": "#/$defs/ramp" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "schemes": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "dark": { "$ref": "#/$defs/scheme" },
+        "light": { "$ref": "#/$defs/scheme" }
+      }
+    },
+    "roles": { "anyOf": [{ "$ref": "#/$defs/roles" }, { "type": "null" }] },
+    "partitions": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "swatches": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/swatch" } },
+            "free": { "anyOf": [{ "$ref": "#/$defs/swatch" }, { "type": "null" }] }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "background": { "anyOf": [{ "$ref": "#/$defs/background" }, { "type": "null" }] },
+    "typography": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "family": { "anyOf": [{ "$ref": "#/$defs/familyList" }, { "type": "null" }] },
+            "mono": { "anyOf": [{ "$ref": "#/$defs/familyList" }, { "type": "null" }] },
+            "sizes": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": { "$ref": "#/$defs/pxPositive" }, "small": { "$ref": "#/$defs/pxPositive" }, "tiny": { "$ref": "#/$defs/pxPositive" }, "micro": { "$ref": "#/$defs/pxPositive" },
+                    "h1": { "$ref": "#/$defs/pxPositive" }, "h2": { "$ref": "#/$defs/pxPositive" }, "h3": { "$ref": "#/$defs/pxPositive" }
+                  }
+                },
+                { "type": "null" }
+              ]
+            },
+            "headingWeight": { "anyOf": [{ "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 }, { "type": "null" }] }
+          }
+        },
+        { "type": "null" }
+      ]
+    }
+  },
+  "if": { "not": { "required": ["inherits"] } },
+  "then": {
+    "description": "A theme without a parent must be complete.",
+    "required": ["accent", "ramps", "schemes"],
+    "properties": {
+      "ramps": { "type": "object", "required": ["accent", "neutral"] },
+      "schemes": {
+        "required": ["dark", "light"],
+        "properties": {
+          "dark": { "required": ["bg", "surface", "text", "edge1", "edge2", "edge3"] },
+          "light": { "required": ["bg", "surface", "text", "edge1", "edge2", "edge3"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "metadata": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+    "pxPositive": { "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 512 }, { "type": "null" }] },
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "colour": {
+      "type": "string",
+      "description": "#rgb, #rrggbb, transparent, accent.N / neutral.N (N = 100, 200, ..., 900), a role name or $variable; all but transparent may take an @alpha suffix written as 0%..100% or 0..1",
+      "pattern": "^(transparent|(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|(accent|neutral)\\.[1-9]00|\\$[a-z][a-z0-9-]*|bg|surface|text|edge1|edge2|edge3|accent|accent2|divider|textBright|textSoft|textMuted|textDim|sunken|hover|selectedRow|selectedTint|link|selectionBg|selectionText|tagFill|tagText|scrim|ok|warning|danger|info)(@((100|[1-9]?[0-9])%|0?\\.[0-9]+|1(\\.0+)?|0))?)$"
+    },
+    "nullableColour": { "anyOf": [{ "$ref": "#/$defs/colour" }, { "type": "null" }] },
+    "colourOrPair": {
+      "oneOf": [
+        { "$ref": "#/$defs/colour" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dark", "light"],
+          "properties": { "dark": { "$ref": "#/$defs/colour" }, "light": { "$ref": "#/$defs/colour" } }
+        }
+      ]
+    },
+    "ramp": {
+      "anyOf": [
+        {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "description": "nine #rrggbb literals, lightest first"
+        },
+        { "type": "null" }
+      ]
+    },
+    "familyList": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "swatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fill", "text"],
+      "properties": { "fill": { "$ref": "#/$defs/colour" }, "text": { "$ref": "#/$defs/colour" } }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Derived roles only; bg, surface, text and the edges live in the scheme, accent and accent2 at the top level.",
+      "properties": {
+        "divider": { "$ref": "#/$defs/nullableColour" },
+        "textBright": { "$ref": "#/$defs/nullableColour" }, "textSoft": { "$ref": "#/$defs/nullableColour" }, "textMuted": { "$ref": "#/$defs/nullableColour" }, "textDim": { "$ref": "#/$defs/nullableColour" },
+        "sunken": { "$ref": "#/$defs/nullableColour" }, "hover": { "$ref": "#/$defs/nullableColour" }, "selectedRow": { "$ref": "#/$defs/nullableColour" }, "selectedTint": { "$ref": "#/$defs/nullableColour" },
+        "link": { "$ref": "#/$defs/nullableColour" }, "selectionBg": { "$ref": "#/$defs/nullableColour" }, "selectionText": { "$ref": "#/$defs/nullableColour" },
+        "tagFill": { "$ref": "#/$defs/nullableColour" }, "tagText": { "$ref": "#/$defs/nullableColour" }, "scrim": { "$ref": "#/$defs/nullableColour" },
+        "ok": { "$ref": "#/$defs/nullableColour" }, "warning": { "$ref": "#/$defs/nullableColour" }, "danger": { "$ref": "#/$defs/nullableColour" }, "info": { "$ref": "#/$defs/nullableColour" }
+      }
+    },
+    "scheme": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bg": { "$ref": "#/$defs/colour" },
+        "surface": { "$ref": "#/$defs/colour" },
+        "text": { "$ref": "#/$defs/colour" },
+        "edge1": { "$ref": "#/$defs/colour" },
+        "edge2": { "$ref": "#/$defs/colour" },
+        "edge3": { "$ref": "#/$defs/colour" },
+        "roles": { "anyOf": [{ "$ref": "#/$defs/roles" }, { "type": "null" }] },
+        "background": { "anyOf": [{ "$ref": "#/$defs/background" }, { "type": "null" }] }
+      }
+    },
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "color"],
+      "properties": { "at": { "$ref": "#/$defs/unit" }, "color": { "$ref": "#/$defs/colour" } }
+    },
+    "space": { "anyOf": [{ "enum": ["window", "content"] }, { "type": "null" }] },
+    "gradient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stops"],
+      "properties": {
+        "type": { "anyOf": [{ "enum": ["linear", "radial"] }, { "type": "null" }] },
+        "angle": { "anyOf": [{ "type": "number" }, { "type": "null" }], "description": "linear only; degrees, CSS convention (0 bottom-to-top, 90 left-to-right, 180 top-to-bottom)" },
+        "center": { "anyOf": [{ "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } }, { "type": "null" }], "description": "radial only; fractions of the painted area" },
+        "radius": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }], "description": "radial only; fraction of the longer side" },
+        "stops": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/stop" } },
+        "space": { "$ref": "#/$defs/space" }
+      },
+      "if": { "properties": { "type": { "const": "radial" } }, "required": ["type"] },
+      "then": { "not": { "required": ["angle"] } },
+      "else": { "allOf": [{ "not": { "required": ["center"] } }, { "not": { "required": ["radius"] } }] }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["src"],
+      "properties": {
+        "src": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+\\.svg$",
+          "description": "relative path, forward slashes, no .., lowercase .svg, inside the theme's directory; a self-contained SVG"
+        },
+        "fit": { "anyOf": [{ "enum": ["cover", "contain", "stretch", "tile", "none"] }, { "type": "null" }] },
+        "anchor": { "anyOf": [{ "type": "string", "pattern": "^(center|top|bottom|left|right|(top|bottom) (left|right))$" }, { "type": "null" }] },
+        "offset": { "anyOf": [{ "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } }, { "type": "null" }] },
+        "scale": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "opacity": { "anyOf": [{ "$ref": "#/$defs/unit" }, { "type": "null" }] },
+        "tint": { "$ref": "#/$defs/nullableColour" },
+        "blend": { "anyOf": [{ "enum": ["normal", "multiply", "screen"] }, { "type": "null" }] },
+        "space": { "$ref": "#/$defs/space" }
+      }
+    },
+    "background": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "color": { "$ref": "#/$defs/nullableColour" },
+        "gradient": { "anyOf": [{ "$ref": "#/$defs/gradient" }, { "type": "null" }] },
+        "image": {
+          "anyOf": [
+            { "$ref": "#/$defs/image" },
+            { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/image" } },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

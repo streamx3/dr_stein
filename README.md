@@ -140,6 +140,10 @@ it is in `doc/design/06-luks-on-macos.md`. Not done yet: a privileged helper
 volumes, data-moving resize/move. Linux builds and
 runs on Mint 22.1 / GCC 13 / Qt 6.11 (see `doc/design/05-linux-bringup.md`);
 the Windows build follows libstein's CI but has not been run by hand.
+The theme file format, `qtheme`, is defined in
+`doc/design/07-qtheme-format.md`; the four palettes are exported as
+`themes/*.qtheme` and `tools/qtheme_check.py` keeps them equal to Theme.qml.
+The app does not load theme files yet.
 
 License: MIT. The Linux caption-button glyphs are Microsoft's
 [Codicons](src/app/icons/codicons/README.md), CC-BY 4.0.
