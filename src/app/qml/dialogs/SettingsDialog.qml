@@ -17,6 +17,11 @@ StDialog {
         Kicker { text: "Appearance"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
         StSegmented { model: [{ label: "Dark", value: "dark" }, { label: "Light", value: "light" }, { label: "Follow system", value: "system" }]; currentValue: Settings.colorScheme; onPicked: (v) => Settings.colorScheme = v }
     }
+    ColumnLayout { Layout.fillWidth: true; spacing: 4
+        Kicker { text: "Browse layout"; font.capitalization: Font.MixedCase; font.letterSpacing: 0; font.pixelSize: Theme.fontSmall }
+        StSegmented { model: [{ label: "Columns", value: "columns" }, { label: "List", value: "list" }]; currentValue: Settings.browseLayout; onPicked: (v) => Settings.browseLayout = v }
+        Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Columns: the folders on the path side by side, as in Finder. List: a tree and a table."; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; wrapMode: Text.WordWrap }
+    }
     StCheck { text: "Preview files in Browse"; sublabel: "Selecting a file reads it and decodes it if it is a picture. Turn this off for failing media, where every read is a risk, and for disks you do not trust. One file at a time can still be previewed on request."; checked: Settings.previewFiles; onToggled: Settings.previewFiles = checked }
     StCheck { text: "Draw the title bar in the app"; sublabel: "The tabs sit in the title bar, like an editor. Applies at the next launch."; checked: Settings.customTitleBar; onToggled: Settings.customTitleBar = checked }
     StCheck { visible: Settings.expertMode; text: "Allow using the app while a read or write runs"; sublabel: "Dangerous: switching sources or starting edits during a write can corrupt the target. Off, everything but Cancel is blocked until the job ends."; checked: Settings.interactDuringJobs; onToggled: Settings.interactDuringJobs = checked }

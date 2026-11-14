@@ -229,7 +229,7 @@ public:
 };
 ```
 
-### 2.6 Files inside a filesystem (`browse.hpp`, `preview_loader.hpp`)
+### 2.6 Files inside a filesystem (`browse.hpp`, `preview_loader.hpp`, `columns.hpp`)
 
 ```cpp
 struct Entry { fs::DirEntry entry; fs::Stat stat; std::string linkTarget; std::string sizeText, mtimeText, modeText; };
@@ -400,6 +400,58 @@ What a superseded request cannot stop is the call the worker is in: one
 waits behind it. What the app builds on this (decoders, timing, the
 keyboard) is in §10.
 
+`columns.hpp` holds the decisions of Browse's column layout (§11), as
+Finder shows a folder: one column per breadcrumb, the last one current, and
+a peek into the folder selected there.
+
+```cpp
+struct ColumnPlan {
+    fs::Inode dir;                 // the directory the column lists
+    std::string title;             // the crumb's name ("/" for the root); the folder's name for the peek
+    std::size_t crumb = 0;         // the column's position: crumbs.size() for the peek
+    bool current = false;          // the last breadcrumb: the list with the selection
+    bool peek = false;             // the folder selected in the current column, nothing selected in it
+    std::string selectName;        // an ancestor's row shown selected (the next crumb's name); empty otherwise
+    bool operator==(const ColumnPlan&) const = default;
+};
+// Column k lists breadcrumb k; a selected directory in the current column adds a peek column.
+std::vector<ColumnPlan> planColumns(const std::vector<Crumb>& crumbs, const Entry* selectedInCurrent);
+// How many leading columns list the same directories before and after a step: those keep their views.
+std::size_t keptColumns(const std::vector<ColumnPlan>& before, const std::vector<ColumnPlan>& after);
+int rowOfName(const Listing& listing, std::string_view name, bool caseSensitive);   // -1 when absent
+
+enum class ColumnClick { SelectInCurrent, JumpThenSelect, EnterThenSelect, Ignore };
+ColumnClick classifyClick(std::size_t column, const std::vector<ColumnPlan>& plans);
+
+class ListingCache {               // listings of directories by inode; the least recently used goes past capacity
+public:
+    explicit ListingCache(std::size_t capacity = 64);
+    std::shared_ptr<const Listing> find(const fs::Inode& dir);    // a hit counts as a use; null on a miss
+    void put(std::shared_ptr<const Listing> listing);            // replaces one of the same directory
+    Expected<std::shared_ptr<const Listing>> get(Browser& browser, const fs::Inode& dir);   // reads on a miss
+    void clear();
+};
+```
+
+What the comments leave out:
+
+- A peek is added for an entry whose `stat` says directory, whatever type
+  its directory entry reports: a symbolic link to a folder gets none.
+- `keptColumns` compares directories by inode, not by name, so a folder
+  replaced by another of the same name is not kept. The facade relies on the
+  inodes of the breadcrumbs (from `lookup`) equalling those of the listings
+  (from `readdir`); that was checked on ext4 and exFAT.
+- `rowOfName` takes an exact match first. On a filesystem that ignores case
+  it then folds ASCII letters only, without the locale: a library `tolower`
+  may fold the bytes of UTF-8 sequences as if they were Latin-1. A path
+  typed in another case with non-ASCII letters (`goTo` on exFAT) therefore
+  leaves its ancestor column without a selected row; clicks and keys always
+  carry the name as it is on disk.
+- `ListingCache` is keyed by the inode alone and bounded by directories, not
+  entries. A read error is returned and not cached, so the next `get` reads
+  again. The filesystem is read-only, so a listing never goes stale while
+  the same `Browser` reads it; whoever opens another one clears the cache.
+
 ### 2.7 Imaging requests (`imaging.hpp`)
 
 The Image view's form is a plain struct; `validate()` turns it into library
@@ -521,7 +573,8 @@ libstein header is included from QML-facing code except for enums.
 | `TopologyModel` | QAbstractListModel | `topologyRows()` | rows filtered by `Settings.expertMode`; `segments` as a QVariantList of maps |
 | `NodeDetailsObject` | QObject | `nodeDetails()` | rows, notes, flags, usedFraction |
 | `StructInspector` | QObject | `structuresFor`, `StructEditor` | `structs`, `currentStruct`, `HexRowsModel` (16 bytes per row: hex, ascii, per-byte state), `FieldsModel`, `selectField`, `selectByte`, `editField`, `revert`, `write()`, `saveHeader(url)`, `restoreFromFile(url)` |
-| `FileBrowser` | QObject | `Browser`, `PreviewLoader`, `copyOut` | `DirTreeModel` (lazy QAbstractItemModel for the left pane), `EntriesModel` (current directory), `breadcrumbs`; `select(row)` for a click, `moveSelection(delta)` / `selectFirst()` / `selectLast()` / `activateSelected()` for the keyboard, `up()` and `jumpTo(crumb)` re-select the directory that was left; the preview as `previewKind` ("none", "off", "loading", "empty", "text", "hex", "image", "unreadable"), `previewLoading`, `previewText`, `previewHex`, `previewImage` (a QImage), `previewNote`, `previewEnabled`, `previewOnce()` (§10); `hash()` (job), `copyOut(entry, dirUrl)` (job), `mount()` |
+| `FileBrowser` | QObject | `Browser`, `PreviewLoader`, `ListingCache`, `copyOut` | `DirTreeModel` (lazy QAbstractItemModel for the list layout's tree), `EntriesModel` (current directory; it shares its listing, does not copy it, and has `get(row)`), `columns` (a `ColumnsModel`, empty in the list layout), `breadcrumbs`; `select(row)` for a click, `moveSelection(delta)` / `selectFirst()` / `selectLast()` / `activateSelected()` for the keyboard, `up()` and `jumpTo(crumb)` re-select the directory that was left; in the column layout `columnClicked(column, row)`, `columnActivated(column, row)` (a double-click), `stageColumnForDrag(column, row)` and `enterSelectedAndSelectFirst()` (§11); the preview as `previewKind` ("none", "off", "loading", "empty", "text", "hex", "image", "unreadable"), `previewLoading`, `previewText`, `previewHex`, `previewImage` (a QImage), `previewNote`, `previewEnabled`, `previewOnce()` (§10); `hash()` (job), `copyOut(entry, dirUrl)` (job), `stageForDrag(rows)`, `mount()` |
+| `ColumnsModel` | QAbstractListModel | `planColumns`, `keptColumns`, `rowOfName` | one row per column, left to right; roles: `title` (the volume's title for the root), `current`, `peek`, `crumb`, `selectedRow` (the selection in the current column, the row on the path in an ancestor, -1 in the peek), `entries` (an `EntriesModel` of the column's own), `entryCount`, `error` (why the directory could not be listed); `count`, `get(row)`. A step replaces only the columns whose directory changed (§11) |
 | `PreviewSurface` | QQuickPaintedItem | a `QImage` | `image`; painted centred and fitted, at most one image pixel per screen pixel, so a decoded preview needs no URL or image provider |
 | `JobRunner` | singleton QObject | `ProgressRelay`, a worker `QThread` | `running`, `title`, `phase`, `fraction`, `doneText/totalText/rateText/etaText`, `messages` (log), `report` (ReportModel), `cancel()`; exactly one job at a time, enforced here |
 | `ImageController` | QObject | `imaging.hpp` | form properties bound two-way from QML, `canStart`, `validationMessage`, `start()`, `dryRun()`, `restore()`, `verify()`, `keys` (KeySlotsModel) |
@@ -529,7 +582,7 @@ libstein header is included from QML-facing code except for enums.
 | `ToolsController` | QObject | `media.hpp` | `scanCells` (QVariantList), results, `surfaceScan()`, `capacityTest(confirmText, quick, keepPattern)` |
 | `ProfilesModel` | QAbstractListModel | `ProfileStore`, `profileCard` | cards; `backup/restore/verify(index, dryRun)` as jobs, `newFromCurrentDisk(imageUrl, name)`, `remove(index)` |
 | `MountsModel` | QAbstractListModel | `MountManager` | mount point, what, `unmount(index)` |
-| `Settings` | singleton QObject | QSettings | `palette` ("teal"/"blurple"), `colorScheme` ("dark"/"light"/"system"), `expertMode`, `profilesDir`, `recentImages`, `decimalSizes`, `previewFiles` (default on; `DRSTEIN_PREVIEW=0\|1` decides it for one run, and such a run never writes it) |
+| `Settings` | singleton QObject | QSettings | `palette` ("teal"/"blurple"), `colorScheme` ("dark"/"light"/"system"), `expertMode`, `profilesDir`, `recentImages`, `decimalSizes`, `previewFiles` (default on; `DRSTEIN_PREVIEW=0\|1` decides it for one run, and such a run never writes it), `browseLayout` ("columns", the default, or "list"; any other value reads as "columns"; `DRSTEIN_BROWSE_LAYOUT=columns\|list` decides it for one run, and such a run writes neither it nor the three widths), `browseTreeWidth` (200, kept within 150–420), `browsePreviewWidth` (280, 220–560), `browseColumnWidth` (240, 140–640), each written when a drag ends, the column width also by a fit |
 
 Threading: the GUI thread owns every facade. `JobRunner` moves one
 `std::function<Expected<void>(Progress&, Report&)>` to its worker thread,
@@ -540,7 +593,9 @@ runs, the facades refuse to start another and the UI disables the buttons
 rule, as in the CLI). `FileBrowser`'s preview worker is a thread beside the
 job's: it reads and decodes through a reader of its own (§2.6) and posts
 what it made to the GUI thread with a queued call; no new preview is asked
-for while a job has the UI locked (§10).
+for while a job has the UI locked (§10). Directories are listed on the GUI
+thread through the `Browser`; the columns' are not read while one of the
+view's own jobs reads through it, and catch up when it ends (§11).
 
 Errors: every facade emits `error(title, message, hint, severity)` built by
 `core::present(Error)`; the shell shows a toast and, for `Permission`, the
@@ -583,6 +638,16 @@ its near misses, the limits, cancellation between chunks, safe and unsafe
 SVGs on files served from memory (`mount::makeSingleFileReader`), and the
 loader's guarantees with a reader that blocks until the test lets it go.
 It synchronises with condition variables; timeouts are failure bounds only.
+`test_columns.cpp` covers `columns.hpp`: the plans for the root, a deep path
+with Unicode names, a selected file (no peek) and a selected folder (a
+peek), the peek following `stat` rather than the directory entry's type;
+which columns survive a step (another inode under the same name is not
+kept); `rowOfName` exact first, then folded; every kind of click and an
+out-of-range one; and the cache (one read per directory, least-recently-used
+order and eviction, replacement, a capacity of 0 holding one, a read error
+not cached) through a counting, failure-injecting in-memory reader wrapped
+in `Browser::fromReader`. A path on the ext4 fixture and one typed in another
+case on the exFAT fixture are planned, found and cached for real.
 
 The Qt layer is exercised by running the app against image files (no
 privileges) and, later, by `qmltestrunner` smoke tests of the models.
@@ -750,27 +815,30 @@ keyboard; while it does not, both turn grey. The line under the panes says
 what is read when: "a file when it is selected" with previews on, "a file
 only when you ask" with them off.
 
-**Keys.** The entries list holds the keyboard. It takes focus when a row or
-the list's empty space is clicked, when Browse becomes the current view and
-when the layout is enabled again after a job, but never from an open dialog.
-The `ListView`'s own key navigation is off, because the selection lives in
-the C++ model; its `Keys.onPressed` calls `keyPressed(key, modifiers,
-autoRepeat)` on the view's root item, which a `DRSTEIN_SCRIPT` can call too
-(`browseView.keyPressed(...)`, `moveSelection(delta)`, `pageRows()`).
+**Keys.** The entries list holds the keyboard, or in the column layout the
+column strip (§11). Whichever is shown takes focus when a row or its empty
+space is clicked, when Browse becomes the current view, when the layout
+setting changes and when the view is enabled again after a job, but never
+from an open dialog. The `ListView`s' own key navigation is off, because the
+selection lives in the C++ model; a key goes up from the focused list or
+strip to a `Keys.onPressed` on its pane in `BrowseView.qml`, which calls
+`keyPressed(key, modifiers, autoRepeat)` on the view's root item. A
+`DRSTEIN_SCRIPT` can call that too (`browseView.keyPressed(...)`,
+`moveSelection(delta)`, `pageRows()`).
 
 | Key | Does |
 |---|---|
 | Up, Down | one entry up or down |
 | PageUp, PageDown | a page: the fully visible rows less one |
 | Home, End | the first, the last entry |
-| Return, Enter, Right | enters the selected directory; nothing on a file |
-| Backspace, Left | the parent directory, with the directory that was left selected |
+| Return, Enter, Right | enters the selected directory: in the list with nothing selected, in columns with its first entry selected, as Finder does; nothing on a file |
+| Backspace, Left | the parent directory, with the directory that was left selected (in columns it is the peek again); nothing at the root |
 
 The selected row is kept in view (`positionViewAtIndex(row,
 ListView.Contain)`). Keys with Ctrl, Alt or Meta are not taken. The four
 directory keys ignore auto-repeat, so a held key does not walk through
 directories. Nothing moves while a job has the view disabled or another
-view is shown.
+view is shown. The line under the panes names the keys of the layout shown.
 
 Not covered:
 
@@ -792,7 +860,143 @@ Not covered:
 - **Tests.** The core half is tested (§6). `src/qt` and the QML have no
   test in the repository: the decoders, `FileBrowser` and the view were
   checked with scratch programs and scripted runs on macOS. The key handler
-  was driven through `browseView.keyPressed()` and by synthetic key events;
-  no test presses a real key, so the way from the keyboard to the handler
-  is left to a check by hand. None of this has been built or run on Linux
-  or Windows.
+  was driven, in both layouts, through `browseView.keyPressed()` and by
+  synthetic key events; no test presses a real key, so the way from the
+  keyboard to the handler is left to a check by hand. The SVG count
+  (`svgCostRefusal`) has no test of its own; the owner deferred those tests.
+  None of this has been built or run on Linux or Windows.
+
+## 11. Browse: the column view and the panes (2026-11-14)
+
+The owner asked for names that fit and for a column view as in Finder, as
+the default, with the choice in Settings. `Settings.browseLayout` is
+"columns" (the default) or "list"; the Settings dialog has "Browse layout"
+(Columns | List) just above "Preview files in Browse".
+`DRSTEIN_BROWSE_LAYOUT=columns|list` decides it for one run, and such a run
+stores neither the layout nor the pane widths below. The elevated relaunch
+passes it on, so the elevated copy stores none of them either. The QML is
+`BrowseView.qml` (the panes, the keys, the preview card),
+`BrowseColumns.qml` (the strip) and `BrowseList.qml` (the table).
+
+**The columns.** `core::planColumns` (§2.6) over the breadcrumbs: column k
+lists breadcrumb k, from the root on, and the last one is the current
+column. That is the current directory with its selection, preview, keys and
+jobs, exactly as in §10. In each ancestor the row of the next breadcrumb
+shows as selected, always in the grey style; the current column's selection
+has the accent while the strip holds the keyboard and is grey while it does
+not. When the current selection is a directory, a peek column to its right
+lists it with nothing selected; a file selected has no peek, and the preview
+card shows it. The peek follows a click at once and a key step after the
+preview's 80 ms pause (a timer of its own), so a held arrow key reads no
+folders. Rows show an icon, the name (elided in the middle, so the extension
+stays) and a chevron for folders; there are no column titles, as in Finder.
+An empty folder says "empty folder"; a folder that cannot be listed shows
+why in its column. A click tries such a folder once more, a key step does
+not.
+
+**What survives a step.** `ColumnsModel` replaces only what changed:
+`keptColumns` counts the leading columns that list the same directories
+before and after, and those keep their delegates, rows and scroll position
+and only get `dataChanged` for their flags. The rest are removed and
+appended. Each column has an `EntriesModel` of its own, so a column keeps
+its model when its role changes (the peek that is entered becomes current,
+the current one becomes an ancestor); the current column's shares the
+listing and selected row of `FileBrowser.entries`. A removed column's model
+is deleted on the next pass of the event loop, as its delegate may still
+hold it.
+
+**What is read.** Directories are listed on the GUI thread through the
+`Browser`, as before. In the column layout the current directory is listed
+through a `ListingCache` (64 directories, least recently used out), and
+every listing a column shows is kept there, so entering the peek or going up
+reads nothing again: on a walk down a chain nine folders deep and a jump
+back up, each directory was read once. The cache is emptied whenever the
+`Browser` is reopened (a reload, another subvolume) and when the layout
+switches to list. No directory is read while one of the view's own jobs
+(hash, copy out) reads through the `Browser`; the columns catch up when it
+ends. In the list layout the columns model stays empty and nothing more is
+read than before.
+
+**Mouse.**
+
+| Where | Click | Double-click |
+|---|---|---|
+| the current column | selects the row | the click, then a folder is entered |
+| an ancestor | goes up to it, which selects the folder that was left again, then selects the row | the same |
+| the peek | enters its folder, then selects the row | the same |
+| a column's empty space | in an ancestor goes up to it, in the peek enters it; nothing in the current column | |
+
+A step on the way to the clicked row does not show the folder passed: the
+previous preview stays up, dimmed, until the clicked row's arrives. A
+double-click enters a folder with nothing selected in it, as in the list. A
+file or folder dragged out of any column is staged as in the list
+(`stageColumnForDrag`, the same 1 GiB limit); neither the selection nor the
+current directory changes.
+
+**Widths.** The panes are a `SplitView`, the pattern of the sidebar in
+`Main.qml`: the directory tree (list layout only), the strip or the table
+(it takes the rest), the preview card. The gaps between them are the
+handles; a short bar shows on hover and while dragging.
+`Settings.browseTreeWidth` (200) and `browsePreviewWidth` (280) are written
+when a handle is let go, and only for the pane the drag changed. When the
+window is too narrow for them and a 320 px middle, the preview gives way
+first, then the tree; when even the least widths (tree 150, middle 240,
+preview 220) do not fit, as with a wide sidebar in a small window, they
+shrink together, so no pane runs past the window's edge.
+
+All columns share one width, `Settings.browseColumnWidth` (240), shown no
+wider than the strip less one pixel, so a width chosen in a wider window
+still shows one whole column. Each column ends in a 1 px divider with a 9 px
+grip over it. Dragging any divider sets the width of all of them (Finder
+does that with Option held); the dragged divider stays under the pointer
+while the strip scrolls by what the columns to its left gained, and the
+width is written on release. A double-click on a divider fits the longest
+name in any column, scrolled into view or not (icon, margins and chevron
+included), but not wider than half the strip, so the current column and the
+peek still stand side by side, unless the columns are wider already.
+
+**Where the strip scrolls.** Whole columns from the left edge, with the
+current column and the place of the peek after it at the right end; when the
+two do not fit side by side, the current column whole at the left. The
+peek's place counts whether a folder or a file is selected, so moving
+between them does not shift the strip. It is set when the current column
+changes, when the strip's width changes and after a fit; otherwise (a
+selection step, the peek coming or going) only when the current column or
+the peek's place is out of view. A scroll by hand or a divider drag is left
+alone until then.
+
+**The list layout, names first.** The Name column takes the room; Size is 72
+px, Modified 124, Mode 84. Below a 600 px list the Mode column goes, below
+460 the Modified one too, and the header follows. Names elide in the middle.
+In both layouts a name that does not fit shows whole in a tooltip after 600
+ms. The breadcrumb box above the panes now shrinks with the row, keeps the
+end of the path in view and fades its start, so a deep path no longer pushes
+the buttons and the preview card out of the window.
+
+Not covered:
+
+- **Real input.** Keys went through `browseView.keyPressed()` and synthetic
+  key events; clicks, double-clicks and the divider and handle drags through
+  synthetic mouse events. Real key presses and a real pointer are left to a
+  check by hand. Drag-out from a column was not run through the QML (it
+  starts a native drag that blocks a scripted run); `stageColumnForDrag`
+  was.
+- **Settings written and the relaunch.** The writes of the layout and the
+  widths (a run without `DRSTEIN_BROWSE_LAYOUT`), a stored value other than
+  "columns" or "list", and the hand-over to the elevated copy are written
+  and read, not run.
+- **Left as they are, for the owner to decide.** While a file is selected
+  the peek's place stays blank at the right; after a fit in a wide window
+  this can hide the root column behind an empty half strip. Narrow columns
+  still elide next to blank strip space in a wide window: filling the strip
+  would change the widths on every step. After a divider drag a partly shown
+  column can sit at the left edge until the next step.
+- **Large folders.** A fit reads every row of every column through
+  `EntriesModel.get()`, which formats all roles, dates included: fine for
+  hundreds of entries, not measured for tens of thousands. The cache counts
+  directories, not entries; on a path more than about 63 folders deep a step
+  back may read a folder again and reset its column.
+- **A small window with a wide sidebar.** At 960 px with a 420 px sidebar
+  the list layout's preview card is 173 px wide; it stays inside the window
+  but clips its own "auto" box and "Copy out…" button.
+- None of this has been built or run on Linux or Windows.

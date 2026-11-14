@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
-// Directory tree · entries · preview card, over a read-only Reader. The entries list
-// holds the keyboard; the preview follows the selection.
+// Over a read-only Reader, in one of two layouts (Settings.browseLayout): columns, as Finder
+// shows a folder, or a directory tree beside the entries as a table. Either way the preview
+// card is on the right; the panes are split by handles whose widths are remembered. The
+// columns or the list hold the keyboard; the preview follows the selection.
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
@@ -14,7 +16,47 @@ Item {
     property int copyRow: -1
 
     readonly property bool current: Workspace.view === "browse"
-    readonly property bool listFocused: entries.activeFocus
+    readonly property bool columnsLayout: Settings.browseLayout === "columns"
+    readonly property bool listFocused: columnsPane.focused || listPane.focused
+    readonly property int rowHeight: 26
+
+    // Pane widths. Each side pane is the width last dragged to, unless the window is too narrow
+    // for it and the middle's least width: then the preview gives way first, then the tree.
+    readonly property int middleLeast: 320
+    readonly property real paneRoom: panes.width - (view.columnsLayout ? 1 : 2) * Theme.space4
+    // The least widths (tree 150, middle 240, preview 220), scaled down together when the room is
+    // less than they add up to, as with a wide sidebar in a narrow window: the panes never run
+    // past the window's edge.
+    readonly property real leastScale: Math.max(0, Math.min(1, view.paneRoom / ((view.columnsLayout ? 0 : 150) + 240 + 220)))
+    readonly property int treeLeast: Math.floor(150 * view.leastScale)
+    readonly property int middleMin: Math.floor(240 * view.leastScale)
+    readonly property int previewLeast: Math.floor(220 * view.leastScale)
+    readonly property int previewPaneWidth: {
+        var tree = view.columnsLayout ? 0 : Settings.browseTreeWidth
+        var excess = tree + Settings.browsePreviewWidth + view.middleLeast - view.paneRoom
+        return Math.max(view.previewLeast, Settings.browsePreviewWidth - Math.max(0, excess))
+    }
+    readonly property int treePaneWidth: {
+        var excess = Settings.browseTreeWidth + Settings.browsePreviewWidth + view.middleLeast - view.paneRoom
+        var previewGives = Math.max(0, Math.min(excess, Settings.browsePreviewWidth - view.previewLeast))
+        return Math.max(view.treeLeast, Settings.browseTreeWidth - Math.max(0, excess - previewGives))
+    }
+    // A drag stores only the pane it moved: the other may be squeezed for now, not chosen.
+    property int treeBefore: 0
+    property int previewBefore: 0
+    function panesResizeStarted() {
+        view.treeBefore = Math.round(treePane.width)
+        view.previewBefore = Math.round(previewPane.width)
+    }
+    function panesResized() {
+        var tree = Math.round(treePane.width)
+        var preview = Math.round(previewPane.width)
+        if (treePane.visible && tree !== view.treeBefore) Settings.browseTreeWidth = tree
+        if (preview !== view.previewBefore) Settings.browsePreviewWidth = preview
+        // The drag replaced the bindings with numbers.
+        treePane.SplitView.preferredWidth = Qt.binding(() => view.treePaneWidth)
+        previewPane.SplitView.preferredWidth = Qt.binding(() => view.previewPaneWidth)
+    }
     // What the preview pane shows: "off" (the explanation and the button), "message" (a line
     // of words), "image", "hex" or "text".
     readonly property string paneMode: {
@@ -24,9 +66,9 @@ Item {
         return kind === "image" || kind === "hex" || kind === "text" ? kind : "message"
     }
 
-    // The keyboard. The list's Keys handler calls keyPressed(); a DRSTEIN_SCRIPT, which cannot
-    // press keys, calls the same functions.
-    function pageRows() { return Math.max(1, Math.floor(entries.height / entries.rowHeight) - 1) }
+    // The keyboard. The Keys handler of the columns or the list calls keyPressed(); a
+    // DRSTEIN_SCRIPT, which cannot press keys, calls the same functions.
+    function pageRows() { return view.columnsLayout ? columnsPane.pageRows() : listPane.pageRows() }
     function moveSelection(delta) { view.browser.moveSelection(delta) }
     // True when the key was one of the list's. Nothing moves while a job holds the view or another
     // view is shown: a hidden item can still be the window's focus item.
@@ -40,9 +82,12 @@ Item {
         case Qt.Key_PageDown: view.moveSelection(view.pageRows()); return true
         case Qt.Key_Home: view.browser.selectFirst(); return true
         case Qt.Key_End: view.browser.selectLast(); return true
-        // A held key does not walk through the directories.
+        // A held key does not walk through the directories. In columns, as in Finder, the folder
+        // entered has its first entry selected; the list selects nothing there.
         case Qt.Key_Return: case Qt.Key_Enter: case Qt.Key_Right:
-            if (!autoRepeat) view.browser.activateSelected()
+            if (autoRepeat) return true
+            if (view.columnsLayout) view.browser.enterSelectedAndSelectFirst()
+            else view.browser.activateSelected()
             return true
         case Qt.Key_Backspace: case Qt.Key_Left:
             if (!autoRepeat) view.browser.up()
@@ -50,14 +95,16 @@ Item {
         }
         return false
     }
-    // The list takes the keyboard, but never from a dialog: then it takes it when the dialog lets go.
+    // The columns or the list take the keyboard, but never from a dialog: then they take it
+    // when the dialog lets go.
     property bool focusWanted: false
     function focusList() {
         for (var item = view.Window.activeFocusItem; item; item = item.parent) {
             if (item === view.Overlay.overlay) { view.focusWanted = true; return }
         }
         view.focusWanted = false
-        entries.forceActiveFocus()
+        if (view.columnsLayout) columnsPane.takeFocus()
+        else listPane.takeFocus()
     }
     Connections {
         target: view.Window.window
@@ -65,6 +112,7 @@ Item {
         function onActiveFocusItemChanged() { if (view.current) view.focusList(); else view.focusWanted = false }
     }
     onCurrentChanged: if (current) focusList()
+    onColumnsLayoutChanged: if (current) focusList()
     Component.onCompleted: if (current) focusList()
 
     FolderDialog {
@@ -102,16 +150,37 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.space3
+            // A path too long for the row gives way at its start: the deepest crumbs stay in view.
             Rectangle {
+                id: crumbBox
                 implicitHeight: 26
-                implicitWidth: crumbs.implicitWidth + 20
+                Layout.fillWidth: true
+                Layout.preferredWidth: Math.ceil(crumbs.implicitWidth) + 20
+                Layout.maximumWidth: Math.ceil(crumbs.implicitWidth) + 20
+                Layout.minimumWidth: Math.min(Math.ceil(crumbs.implicitWidth) + 20, 120)
                 radius: Theme.radiusMd
                 color: Theme.surface
                 border.width: 1
                 border.color: Theme.edge1
+                clip: true
+                Rectangle {
+                    z: 1
+                    visible: crumbs.x < 9.5
+                    x: 1
+                    y: 1
+                    width: 28
+                    height: parent.height - 2
+                    radius: Theme.radiusMd
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.4; color: Theme.surface }
+                        GradientStop { position: 1; color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0) }
+                    }
+                }
                 Row {
                     id: crumbs
-                    anchors.centerIn: parent
+                    x: Math.min(10, crumbBox.width - 10 - crumbs.implicitWidth)
+                    anchors.verticalCenter: parent.verticalCenter
                     spacing: 4
                     Text { text: view.browser.title; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.accentStep(300) }
                     Text { text: view.browser.fsName; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textDim }
@@ -121,10 +190,10 @@ Item {
                             id: crumb
                             required property var modelData
                             spacing: 4
-                            Text { text: "/"; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textDim; visible: crumb.modelData.index > 0 || true }
+                            // The root crumb is the "/" itself; a separator goes only between names.
+                            Text { text: "/"; font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.textDim; visible: crumb.modelData.index > 1 }
                             Text {
-                                text: crumb.modelData.index === 0 ? "" : crumb.modelData.name
-                                visible: crumb.modelData.index > 0
+                                text: crumb.modelData.index === 0 ? "/" : crumb.modelData.name
                                 font.family: Theme.monoFamily; font.pixelSize: Theme.fontSmall; color: Theme.text
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { view.browser.jumpTo(crumb.modelData.index); view.focusList() } }
                             }
@@ -151,15 +220,33 @@ Item {
             StButton { text: "Copy out…"; variant: "primary"; small: true; focusPolicy: Qt.TabFocus; enabled: view.browser.hasSelection; onClicked: view.copyEntry(view.browser.selectedIndex) }
         }
 
-        RowLayout {
+        SplitView {
+            id: panes
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: Theme.space4
+            orientation: Qt.Horizontal
+            // The gap between the panes is the handle; a short bar shows where to grab it.
+            handle: Item {
+                id: paneHandle
+                implicitWidth: Theme.space4
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 2
+                    height: Math.min(40, parent.height)
+                    radius: 1
+                    visible: paneHandle.SplitHandle.hovered || paneHandle.SplitHandle.pressed
+                    color: paneHandle.SplitHandle.pressed ? Theme.accent : Theme.edge3
+                }
+            }
+            onResizingChanged: if (resizing) view.panesResizeStarted(); else view.panesResized()
 
-            // Directory tree.
+            // Directory tree: the list layout's only.
             Rectangle {
-                Layout.preferredWidth: 220
-                Layout.fillHeight: true
+                id: treePane
+                visible: !view.columnsLayout
+                SplitView.preferredWidth: view.treePaneWidth
+                SplitView.minimumWidth: view.treeLeast
+                SplitView.maximumWidth: 420
                 radius: Theme.radiusMd
                 color: Theme.surface
                 border.width: 1
@@ -210,126 +297,38 @@ Item {
                 }
             }
 
-            // Entries.
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                radius: Theme.radiusMd
-                color: Theme.surface
-                border.width: 1
-                border.color: Theme.edge1
-                clip: true
-                ColumnLayout {
+            // Entries: the column strip or the table.
+            Item {
+                SplitView.fillWidth: true
+                // What the side panes' widths leave it; a drag stops there rather than jump on release.
+                SplitView.minimumWidth: Math.max(view.middleMin, Math.min(view.middleLeast, view.paneRoom - view.previewLeast - (view.columnsLayout ? 0 : view.treeLeast)))
+                BrowseColumns {
+                    id: columnsPane
                     anchors.fill: parent
-                    spacing: 0
-                    ColumnHeader {
-                        Layout.fillWidth: true
-                        Layout.topMargin: 6
-                        leftPad: 12; rightPad: 12; spacing: 10
-                        columns: [{ label: "Name" }, { label: "Size", width: 80, align: "right" }, { label: "Modified", width: 130 }, { label: "Mode", width: 90 }]
-                    }
-                    ListView {
-                        id: entries
-                        readonly property int rowHeight: 26
-                        // Directory and row last scrolled into view: a preview arriving later must not
-                        // pull the list back to a row the user has scrolled away from.
-                        property string revealed: ""
-                        function revealSelection() {
-                            var row = view.browser.selectedIndex
-                            var key = view.browser.pathText + "\n" + row
-                            if (key === revealed) return
-                            revealed = key
-                            if (row >= 0) positionViewAtIndex(row, ListView.Contain)
-                        }
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        model: view.browser.entries
-                        activeFocusOnTab: true
-                        // The selection lives in the model: the view's own arrow keys would move its currentIndex.
-                        keyNavigationEnabled: false
-                        Keys.onPressed: (event) => { event.accepted = view.keyPressed(event.key, event.modifiers, event.isAutoRepeat) }
-                        TapHandler { onTapped: view.focusList() }   // the space below the last row
-                        Connections {
-                            target: view.browser
-                            function onSelectionChanged() { entries.revealSelection() }
-                        }
-                        ScrollBar.vertical: ScrollBar {}
-                        delegate: Rectangle {
-                            id: erow
-                            required property var model
-                            required property int index
-                            width: entries.width
-                            height: entries.rowHeight
-                            // The selected row is tinted with the accent while the list has the keyboard and
-                            // grey while it is elsewhere. The light scheme's darkest accent step is nearly the
-                            // surface itself, so it takes a stronger one.
-                            color: !model.selected ? (erowMouse.containsMouse ? Theme.sunken : "transparent")
-                                 : view.listFocused ? (Theme.dark ? Theme.accentStep(900) : Theme.accentStep(700))
-                                 : (Theme.dark ? Theme.neutralStep(800) : Theme.neutralStep(700))
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.top: parent.top
-                                anchors.bottom: parent.bottom
-                                width: 3
-                                visible: erow.model.selected
-                                color: view.listFocused ? Theme.accent : Theme.edge3
-                            }
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: 12
-                                anchors.rightMargin: 12
-                                spacing: 10
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    spacing: 8
-                                    Icon { name: erow.model.kind === "dir" ? "folder" : erow.model.kind === "link" ? "link" : "file"; size: 14; color: erow.model.kind === "dir" ? Theme.accentStep(400) : Theme.textMuted }
-                                    // Only a link shares the column with its target, and its name stops at 360 for it.
-                                    Text { text: erow.model.name; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.text; elide: Text.ElideRight; Layout.maximumWidth: erow.model.linkTarget.length > 0 ? 360 : Number.POSITIVE_INFINITY; Layout.minimumWidth: 0; Layout.fillWidth: erow.model.linkTarget.length === 0 }
-                                    Text { visible: erow.model.linkTarget.length > 0; Layout.fillWidth: true; Layout.minimumWidth: 0; text: erow.model.linkTarget; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted; elide: Text.ElideRight }
-                                }
-                                Text { Layout.preferredWidth: 80; Layout.minimumWidth: 80; Layout.maximumWidth: 80; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight; text: erow.model.sizeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft }
-                                Text { Layout.preferredWidth: 130; Layout.minimumWidth: 130; Layout.maximumWidth: 130; elide: Text.ElideRight; text: erow.model.mtimeText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSmall; color: Theme.textSoft }
-                                Text { Layout.preferredWidth: 90; Layout.minimumWidth: 90; Layout.maximumWidth: 90; elide: Text.ElideRight; text: erow.model.modeText; font.family: Theme.monoFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
-                            }
-                            // Drag-out: past the drag threshold the entry is staged to a temp copy and
-                            // handed to the OS as a file URL; dropping it in Finder / Explorer copies it.
-                            Item {
-                                id: dragProxy
-                                Drag.dragType: Drag.Automatic
-                                Drag.supportedActions: Qt.CopyAction
-                                Drag.mimeData: ({})
-                            }
-                            MouseArea {
-                                id: erowMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                property real pressX: 0
-                                property real pressY: 0
-                                property bool dragging: false
-                                onPressed: (mouse) => { pressX = mouse.x; pressY = mouse.y; dragging = false; view.focusList() }
-                                onPositionChanged: (mouse) => {
-                                    if (!pressed || dragging) return
-                                    if (Math.abs(mouse.x - pressX) < 8 && Math.abs(mouse.y - pressY) < 8) return
-                                    dragging = true
-                                    var urls = view.browser.stageForDrag([erow.index])
-                                    if (urls.length === 0) return
-                                    dragProxy.Drag.mimeData = { "text/uri-list": urls.join("\r\n") }
-                                    dragProxy.Drag.startDrag(Qt.CopyAction)
-                                }
-                                onClicked: if (!dragging) view.browser.select(erow.index)
-                                onDoubleClicked: view.browser.activate(erow.index)
-                            }
-                        }
-                    }
+                    visible: view.columnsLayout
+                    browser: view.browser
+                    rowHeight: view.rowHeight
+                    onFocusRequested: view.focusList()
+                    Keys.onPressed: (event) => { event.accepted = view.keyPressed(event.key, event.modifiers, event.isAutoRepeat) }
+                }
+                BrowseList {
+                    id: listPane
+                    anchors.fill: parent
+                    visible: !view.columnsLayout
+                    shown: !view.columnsLayout
+                    browser: view.browser
+                    rowHeight: view.rowHeight
+                    onFocusRequested: view.focusList()
+                    Keys.onPressed: (event) => { event.accepted = view.keyPressed(event.key, event.modifiers, event.isAutoRepeat) }
                 }
             }
 
             // Preview.
             StCard {
-                Layout.preferredWidth: 280
-                Layout.fillHeight: true
+                id: previewPane
+                SplitView.preferredWidth: view.previewPaneWidth
+                SplitView.minimumWidth: view.previewLeast
+                SplitView.maximumWidth: 560
                 gap: Theme.space3
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -448,12 +447,37 @@ Item {
             }
         }
 
-        RowLayout {
+        // Laid out by hand: in a narrow window the middle text gives way first, then the keys
+        // elide at their end. Nothing here may widen the view.
+        Item {
+            id: bottomRow
+            readonly property int gap: 16
             Layout.fillWidth: true
-            spacing: 16
-            Text { text: view.browser.statusText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
-            Text { text: view.browser.previewEnabled ? "lazy: a directory is read when it opens, a file when it is selected" : "lazy: a directory is read when it opens, a file only when you ask"; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
-            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight; text: view.browser.busy ? JobRunner.title + "…" : "↑ ↓ move · Enter opens a folder · Backspace goes up · Copy out writes to a folder of your choice"; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
+            implicitHeight: statusLine.implicitHeight
+            Text { id: statusLine; text: view.browser.statusText; font.family: Theme.fontFamily; font.pixelSize: Theme.fontTiny; color: Theme.textMuted }
+            Text {
+                x: statusLine.implicitWidth + bottomRow.gap
+                width: Math.max(0, keyHint.x - bottomRow.gap - x)
+                visible: width >= 40
+                elide: Text.ElideRight
+                text: view.browser.previewEnabled ? "lazy: a directory is read when it opens, a file when it is selected" : "lazy: a directory is read when it opens, a file only when you ask"
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontTiny
+                color: Theme.textMuted
+            }
+            Text {
+                id: keyHint
+                anchors.right: parent.right
+                width: Math.min(implicitWidth, Math.max(0, bottomRow.width - statusLine.implicitWidth - bottomRow.gap))
+                horizontalAlignment: Text.AlignRight
+                elide: Text.ElideRight
+                text: view.browser.busy ? JobRunner.title + "…"
+                    : view.columnsLayout ? "← → folders · ↑ ↓ move · Enter opens · Copy out writes to a folder of your choice"
+                    : "↑ ↓ move · Enter opens a folder · Backspace goes up · Copy out writes to a folder of your choice"
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontTiny
+                color: Theme.textMuted
+            }
         }
     }
 }

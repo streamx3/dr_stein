@@ -60,7 +60,7 @@ as a flood.
 | Identity strip (title, mono path, identity line, tags: table, health, read-only) | `IdentityStrip` bound to `Workspace.current` |
 | Topology: 34 px proportional bar, tree table (1fr 150 90 96), 320 px details card | `SegmentBar`, `ListView` with `GridLayout` rows over `TopologyModel`, `DetailsCard` |
 | Hex: segmented struct picker, hex pane (76 / 16 cells / 136) and parsed pane | `StructInspector`: `StSegmented`, `HexPane` (`ListView` of 16-byte rows with a `Row` of 16 cells), `FieldsPane` |
-| Browse: 220 / 1fr / 280 panes | `TreeView` over `DirTreeModel`; `ListView` over `EntriesModel`, which holds the keyboard (arrows, PageUp/PageDown, Home/End, Enter and Backspace; the view's own key navigation is off because the selection lives in the model); the preview card, an `StCard` in `BrowseView.qml`: `PreviewSurface` paints a decoded picture, a `TextEdit` shows text or hex, and the "auto" `StCheck` in its header is `Settings.previewFiles`, with "Preview this file" for one file when it is off |
+| Browse: 220 / 1fr / 280 panes | A `SplitView` in `BrowseView.qml` whose handles are the gaps between the panes; the side panes' widths are kept in `Settings` (tree 200, preview 280 by default) and give way in a narrow window. The middle pane is one of two layouts (`Settings.browseLayout`, "Browse layout" in Settings). Columns, the default and an addition to the mockup at the owner's request: `BrowseColumns.qml`, a horizontal `Flickable` with a `Row` of columns over `FileBrowser.columns`, one per folder on the path plus the selected folder's contents, as in Finder, no tree pane; the columns share one width that any divider drags and a double-click on a divider fits. List: `BrowseList.qml`, a `TreeView` over `DirTreeModel` in the left pane and a `ListView` over `EntriesModel` where the name takes the room (Size 72, Modified 124, Mode 84; Mode goes below 600 px, Modified below 460). Names elide in the middle, with the whole name in a tooltip. The strip or the list holds the keyboard (arrows, PageUp/PageDown, Home/End, Enter and Backspace; the views' own key navigation is off because the selection lives in the model). The preview card is an `StCard`: `PreviewSurface` paints a decoded picture, a `TextEdit` shows text or hex, and the "auto" `StCheck` in its header is `Settings.previewFiles`, with "Preview this file" for one file when it is off |
 | Image: form (2 columns) + progress/report card | `ImageForm`, `JobCard` (shared with every long job) |
 | Profiles: 3-column cards + dashed "New profile" | `GridLayout` of `ProfileCard`, `Flow` fallback below 1100 px |
 | Tools: scan card with a 64-column cell grid, destructive card, confirm dialog | `ScanGrid` (`Grid` of `Rectangle`s from `scanCells`), `ConfirmErase` dialog with the typed kernel name |
@@ -204,4 +204,6 @@ See `03-round-2-plan.md` for the item list. Rules that came out of it:
   the same for Browse's preview switch, with one difference: a run started
   with it changes the switch in memory only and leaves the stored setting
   alone. The elevated relaunch passes it on; that hand-over is written, not
-  yet run.
+  yet run. `DRSTEIN_BROWSE_LAYOUT=columns|list` (also 2026-11-14) does the
+  same for Browse's layout, and such a run stores none of Browse's pane and
+  column widths either; the relaunch passes it on, also not yet run.

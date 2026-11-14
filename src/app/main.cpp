@@ -8,6 +8,7 @@
 //   DRSTEIN_SCREENSHOT=<file.png>    grab the window after DRSTEIN_DELAY ms (default 2500), save it, quit
 //   DRSTEIN_SCRIPT=<javascript>      evaluated in Main.qml's scope 1 s after start (smoke runs)
 //   DRSTEIN_PREVIEW=0|1              file previews in Browse off or on for this run; the stored setting is left alone
+//   DRSTEIN_BROWSE_LAYOUT=columns|list   Browse's layout for this run; neither it nor Browse's pane widths are stored
 //   DRSTEIN_SOURCE=<source id>       after an elevated relaunch: select this disk or image and ask once for its passphrase
 #include "app_icon.hpp"
 #include "codicon_provider.hpp"

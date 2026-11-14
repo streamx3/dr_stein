@@ -1,7 +1,8 @@
-# Browse: previews, arrow keys, preview toggle — status on 2026-11-14
+# Browse: previews, arrow keys, preview toggle, column view — status on 2026-11-14
 
 Working notes for whoever continues this change. The design itself is in
-`doc/design/01-application-architecture.md` §2.6 (core) and §10 (app side);
+`doc/design/01-application-architecture.md` §2.6 (core), §10 and, for the
+column view, §11 (app side);
 this file is the state of the work: what exists, what was proven, what is
 left, and what was decided along the way.
 
@@ -24,6 +25,10 @@ pushed in both repositories (libstein first, then dr_stein with the
 submodule pointer). Real key presses in an active window were never
 exercised, and the review was one reviewer's pass plus a read of the new
 SVG code, not the multi-reviewer pass that was planned.
+
+Later the same day the owner asked for names that fit and for a column view
+as in Finder, as the default. That was built on top of this work and is
+summarised in §12; its design is in `01-application-architecture.md` §11.
 
 ## 3. Why the old preview failed
 
@@ -203,24 +208,40 @@ this note.
 
 ## 7. Not done, in order
 
-1. **Real key presses** in an active window, by hand: Up/Down through
+1. **Real key presses and a real pointer** in an active window, by hand,
+   in both layouts; the owner will do this. In the list: Up/Down through
    `photos/`, hold Down in `many/`, Enter into a folder, Backspace out,
-   after clicking the toggle, after a dialog closes. Check the selection
-   cue too: accent tint and bar while the list has the keyboard, grey
-   while it has not.
-2. **An independent multi-reviewer pass** over the change, as first
-   planned (the review workflow, run `wf_b44fcf78-356`, was stopped before
-   it returned anything; the lenses were concurrency and lifetime, core
-   logic and tests, decoding and painting, QML keys and focus,
-   integration and portability).
-3. **Linux / Windows build** of this change (the Mac file is guarded in
-   CMake; nothing was compiled elsewhere; a reading for GCC 13 and MSVC
-   found nothing).
+   after clicking the toggle, after a dialog closes. In columns (§12):
+   Right and Left through a deep folder chain, Return selecting the
+   folder's first entry, Left at the root, holding Down over folders (the
+   peek follows only after the pause), clicks in an ancestor and in the
+   peek, a divider dragged and double-clicked, the pane handles, a file
+   dragged out of an ancestor column into Finder, the layout switched in
+   Settings. Check the selection cue too: accent tint and bar while the
+   list or the strip has the keyboard, grey while it has not, ancestors
+   always grey.
+2. **An independent multi-reviewer pass** over the preview change, as
+   first planned (the review workflow, run `wf_b44fcf78-356`, was stopped
+   before it returned anything; the lenses were concurrency and lifetime,
+   core logic and tests, decoding and painting, QML keys and focus,
+   integration and portability). The column view had a three-reviewer
+   pass of its own (§12); this one is still open.
+3. **Linux / Windows build** of this change and of the column view (the
+   Mac file is guarded in CMake; nothing was compiled elsewhere; a reading
+   for GCC 13 and MSVC found nothing).
 4. **The user's SD card image**
    `/Users/andrii/Projects/dr_stein/mmcblk0_luks-ext4-test_media.img`: MBR,
    one partition type 0xE8, LUKS2 aes-xts-plain64, argon2id t=8 m=1 GiB p=4.
-   The project's fixture passphrase does not open it. It needs the
-   passphrase from Andrii; nothing else was tried and nothing should be.
+   The owner gave the passphrase on 2026-11-14; it is not written down
+   here. The column view was then run on an already decrypted copy of its
+   ext4 payload (10 entries, Cyrillic names), with previews off, selecting
+   only folders and non-picture files. Still to check, by the owner: the
+   pictures on the card with previews on, which is what the request in §1
+   was about.
+5. **Tests for the SVG count** (`svgCostRefusal` in
+   `src/qt/preview_decode.cpp`): deferred by the owner on 2026-11-14, to be
+   written later. `src/qt` has no test harness (§4), so they need one, or
+   the count moved into the core.
 
 Open, noticed in the review and left alone:
 
@@ -275,8 +296,9 @@ Open, noticed in the review and left alone:
 - `svgSafeToRender` is conservative: Illustrator SVGs with `<!ENTITY>` and
   Inkscape SVGs with an embedded `<image>` are shown as text. So are SVGs
   that expand to more than 100 000 elements or nest more than 128 levels.
-- At the 960 px minimum window width the entries list is narrow (tree 220,
-  card 280 keep their widths). Not part of this change.
+- At the 960 px minimum window width the entries list was narrow (tree 220,
+  card 280 kept their widths). Since §12 the panes are resizable and give
+  way in a narrow window, and the default column layout has no tree.
 
 ## 9. Conclusions
 
@@ -300,21 +322,24 @@ Open, noticed in the review and left alone:
 cd /Users/andrii/git/dr_stein
 cmake --build --preset debug                       # app + core tests
 cmake --build --preset debug --target all_qmllint  # must print no warnings
-build/debug/src/core/drstein_core_tests            # 73 cases, 3487 assertions
+build/debug/src/core/drstein_core_tests            # 84 cases, 3741 assertions (73 and 3487 before §12)
 ```
 
 Scripted run (the app quits by itself only when `DRSTEIN_SCREENSHOT` is set;
-always set `DRSTEIN_PREVIEW` so the stored settings are not written):
+always set `DRSTEIN_PREVIEW` and `DRSTEIN_BROWSE_LAYOUT` so the stored
+settings are not written):
 
 ```
-DRSTEIN_PREVIEW=1 DRSTEIN_VIEW=browse DRSTEIN_DELAY=7000 \
+DRSTEIN_PREVIEW=1 DRSTEIN_BROWSE_LAYOUT=list DRSTEIN_VIEW=browse DRSTEIN_DELAY=7000 \
 DRSTEIN_SCREENSHOT=/abs/shot.png \
 DRSTEIN_SCRIPT='Qt.createQmlObject("import QtQuick; Timer { interval: 1200; running: true; onTriggered: { browseView.browser.enter(\"photos\"); browseView.browser.select(16) } }", window)' \
 "build/debug/src/app/Dr Stein.app/Contents/MacOS/Dr Stein" /abs/media-exfat.dmg
 ```
 
 Script entry points: `browseView.browser.*` (select, enter, up,
-moveSelection, previewOnce, previewKind, previewNote, previewLoading) and
+moveSelection, previewOnce, previewKind, previewNote, previewLoading; in
+columns also columnClicked, columnActivated, enterSelectedAndSelectFirst,
+columns.count, columns.get(i)) and
 `browseView.keyPressed(Qt.Key_Down, 0, false)`, `browseView.moveSelection(n)`,
 `browseView.pageRows()`.
 
@@ -353,3 +378,135 @@ cd ..; hdiutil create -quiet -size 96m -fs ExFAT -volname MEDIA -layout NONE med
 DEV=$(hdiutil attach -nobrowse -mountpoint ./mnt media-exfat.dmg | awk 'NR==1{print $1}')
 cp -R media/ mnt/; sync; hdiutil detach -quiet $DEV
 ```
+
+The column view (§12) used a second image, `tree-exfat.dmg` (exFAT "TREE",
+64 MiB), with its source folder `tree-src/`, both in the scratch directory
+of the session that built the column view,
+`/private/tmp/claude-501/-Users-andrii-git-dr-stein/988cf335-a166-49b0-87b1-bf83c0a64b48/scratchpad/`:
+`Projects/2026/…/v7/` (a chain nine folders deep with a `notes-N.txt` in
+each and a long-named file at the bottom), `Names/` (very long, Ukrainian,
+Japanese and emoji names, one without an extension, a hidden file, a
+90-character `.tar.gz`), `Many/` (300 `.log` files and two subfolders),
+`Mixed/` (four folders each with `child/leaf.txt`, two text files, two
+PNGs) and an empty folder. The `hdiutil` lines above rebuild it from
+`tree-src/` with `-size 64m -volname TREE`. `fix/bad-exfat.dmg` in the
+same place is a copy with one folder's first cluster set out of range: its
+column shows the read error.
+
+## 12. Column view and layout (2026-11-14)
+
+The owner's request, later the same day:
+
+> Yes, loosen the layout so names fit.
+>
+> Also I wanted to ask you to create a column view as it is in MacOS
+> finder, instead of 2 separate columns. And make it the default view.
+> Option to change it can live in settings.
+
+The design is in `01-application-architecture.md` §2.6 (core) and §11 (app
+side); `02-ui-translation.md` has the Browse row.
+
+### Built
+- Core: `columns.hpp/.cpp`. `planColumns` (one column per breadcrumb, the
+  last current, a peek when a folder is selected), `keptColumns` (which
+  columns survive a step), `rowOfName`, `classifyClick` and `ListingCache`
+  (64 directories, least recently used out, read errors not cached). New
+  `test_columns.cpp`, 11 cases.
+- Qt: `Settings.browseLayout` ("columns", the default, or "list") and the
+  widths `browseTreeWidth`, `browsePreviewWidth`, `browseColumnWidth`;
+  `DRSTEIN_BROWSE_LAYOUT=columns|list` decides the layout for one run, and
+  such a run stores neither it nor the widths; the elevated relaunch
+  passes it on. `ColumnsModel` (`FileBrowser.columns`) with an
+  `EntriesModel` per column that stays with its directory;
+  `columnClicked`, `columnActivated`, `stageColumnForDrag`,
+  `enterSelectedAndSelectFirst`; the peek's own 80 ms timer.
+  `EntriesModel` now shares its listing instead of copying it, and has
+  `get(row)`. In the list layout the columns model stays empty.
+- QML: `BrowseView.qml` is a `SplitView` of three resizable panes; new
+  `BrowseColumns.qml` (the strip) and `BrowseList.qml` (the table, names
+  first: Mode and Modified give way in a narrow pane). `keyPressed()`
+  dispatches by layout; a tooltip shows an elided name whole; the
+  breadcrumb box shrinks and fades its start instead of pushing the
+  buttons out of the window; the bottom row is laid out by hand and names
+  the layout's keys. Settings has "Browse layout" (Columns | List).
+- Reviewed by three reviewers (core and facade, QML and keys, the look):
+  12 findings, 11 fixed. A click in an ancestor or the peek briefly showed
+  the preview of the folder passed; a column that failed to list was never
+  read again; gaps in the tests, shown by mutation (three cases added);
+  the divider drag drifted from the pointer and jumped on release; the
+  strip shifted between a file and a folder, could cut the current column
+  and showed columns wider than itself; a fit could push the peek out of
+  view; the list layout's panes could run past a narrow window; the key
+  hint was cut. The twelfth is left to the owner (below).
+
+### Verified
+- `cmake --build --preset debug --clean-first`: two warnings, both from
+  before this change and in files it does not touch (`structs.cpp`,
+  `window_chrome_mac.mm`). qmllint: 0 warnings (the old "unused import"
+  info in `FrameResizer.qml` only). Core tests 84/84, 3741 assertions; the
+  columns cases 11/11, 254 assertions. Five mutations of `columns.cpp` (no
+  move to front in `find`, folding before the exact match, no replacement
+  in `put`, titles compared in `keptColumns`, the peek decided by the
+  directory entry's type) each fail the tests.
+- Scripted runs on macOS, previews on and off, both schemes, at 960×620,
+  1280×800 and 1600×1000, on TREE and MEDIA (§11):
+  - The nine-level chain walked by clicks and keys: the columns to the left
+    kept their models at every step, and each directory was read once.
+  - The peek: unchanged 40 ms after a key step and there by 150 ms; at once
+    after a click.
+  - Clicks in an ancestor, in the peek and on a column's empty space; a
+    double-click in the peek; a click during a job ignored; a change during
+    a job applied when it ended.
+  - Right, Return, Enter, Left, Backspace, Right on a file, Left at the
+    root, auto-repeat and Ctrl+Down in both layouts, through `keyPressed()`
+    and synthetic key events.
+  - Divider drag (the divider under the pointer at every 5 px step; clamped
+    at 140 and 640 and at the strip's start), fit (240 → 364 px at 1280,
+    524 at 1600), the pane handles, the layout switched both ways.
+  - List layout: `columns.count` stayed 0 and nothing was read for columns
+    (15 reads: 1 tree load, 14 directories).
+  - A folder that cannot be read shows the error in its column; a click
+    reads it again, a key step does not.
+  - `stageColumnForDrag` from an ancestor: the copy's SHA-256 equals the
+    copy-out's; path and selection unchanged.
+  - Previews: kind and note the same in both layouts.
+- The owner's SD card (§7.4), its decrypted payload, in columns with
+  previews off: the root column listed it, an empty folder showed as the
+  peek, a click entered it, Left went back up, Left at the root did
+  nothing.
+- The stored settings: byte-identical to a snapshot taken before the work,
+  with no `browse*` keys.
+
+### Left open
+- Real key presses and a real pointer (§7.1); drag-out from a column was
+  run through `stageColumnForDrag` only, never as a real drag.
+- Written, not run: storing the layout and the widths (a run without
+  `DRSTEIN_BROWSE_LAYOUT`), reading a stored layout other than "columns"
+  or "list", the relaunch hand-over.
+- For the owner to decide: narrow columns still elide beside blank strip
+  space in a wide window (the twelfth finding; filling the strip would
+  change the widths on every step). While a file is selected the peek's
+  place stays blank, and after a fit in a wide window the root column can
+  hide behind an empty half strip. After a divider drag a partly shown
+  column can sit at the left edge until the next step.
+- Not measured: a fit over tens of thousands of entries. Limits: the cache
+  counts directories, not entries; `rowOfName` folds ASCII letters only;
+  breadcrumb and listing inodes were compared on ext4 and exFAT only.
+- At 960 px with a 420 px sidebar the list layout's preview card clips its
+  own "auto" box and "Copy out…" button.
+- From before this change, not touched: the top bar does not fit a 960 px
+  window on any view. (The breadcrumb's doubled slash after the root,
+  "TREE exFAT / / Projects", also older, is fixed: the root crumb is the
+  "/" itself and separators go only between names.)
+- Not built on Linux or Windows.
+
+### Files
+Modified: `README.md`, `doc/design/01-application-architecture.md`,
+`doc/design/02-ui-translation.md`, this note, `src/app/CMakeLists.txt`,
+`src/app/main.cpp`, `src/app/qml/dialogs/SettingsDialog.qml`,
+`src/app/qml/views/BrowseView.qml`, `src/core/CMakeLists.txt`,
+`src/qt/file_browser.{hpp,cpp}`, `src/qt/settings.{hpp,cpp}`,
+`src/qt/workspace.cpp`.
+New: `src/core/include/drstein/core/columns.hpp`, `src/core/src/columns.cpp`,
+`src/core/tests/test_columns.cpp`, `src/app/qml/views/BrowseColumns.qml`,
+`src/app/qml/views/BrowseList.qml`.

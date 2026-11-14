@@ -988,12 +988,14 @@ void Workspace::relaunchElevated() {
     QStringList args;
     for (const auto& img : m_images) args << qs(img.path);
     // The elevated copy has root's settings, not the user's: carry the look, the profiles
-    // folder and the preview switch across through the environment the app already honours.
+    // folder, the preview switch and Browse's layout across through the environment the app
+    // already honours.
     QStringList env;
     env << "DRSTEIN_PALETTE=" + Settings::instance()->palette() << "DRSTEIN_SCHEME=" + Settings::instance()->colorScheme()
         << "DRSTEIN_CHROME=" + QString(Settings::instance()->customTitleBar() ? "custom" : "native")
         << "DRSTEIN_PROFILES_DIR=" + Settings::instance()->profilesDir()
-        << "DRSTEIN_PREVIEW=" + QString(Settings::instance()->previewFiles() ? "1" : "0");
+        << "DRSTEIN_PREVIEW=" + QString(Settings::instance()->previewFiles() ? "1" : "0")
+        << "DRSTEIN_BROWSE_LAYOUT=" + Settings::instance()->browseLayout();
     if (const QByteArray script = qgetenv("DRSTEIN_ELEVATED_SCRIPT"); !script.isEmpty()) env << "DRSTEIN_SCRIPT=" + QString::fromUtf8(script);
     env << "DRSTEIN_VIEW=" + m_view;
     // The selected source by id (a disk's identity, an image's path), so the copy lands where the

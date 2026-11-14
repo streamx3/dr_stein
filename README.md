@@ -17,7 +17,7 @@ Seven views, translated from the Claude Design prototype in
 |---|---|
 | Topology | byte-proportional bar, the probe tree (table, partitions, containers, volumes), a details card with usage, diagnostics and actions; a locked LUKS container unlocks in place (the passphrase stays in memory for the session, the unlocked master key is reused by later probes) and its payload appears as a row to browse or mount; a container the library cannot open says why instead |
 | Hex | every on-disk structure the library parses (GPT headers and entries, superblocks, boot sectors) next to its bytes; field edits preview on an overlay, checksums can be recomputed, nothing is written before you say so |
-| Browse | files inside ext4, FAT, exFAT, NTFS, HFS+, APFS, XFS, btrfs, ISO, UDF, SquashFS, EROFS and F2FS, in images, LUKS containers or LVM volumes, without mounting; the arrow keys walk the list and the selected file is previewed as text, hex or a picture, read and decoded off the UI thread (the "auto" check on the preview card, also in Settings, turns that off: a file is then previewed only on "Preview this file"); hash, copy out, or mount it for the OS under a mount point named after the volume label, with Reveal in Finder / Show in Explorer |
+| Browse | files inside ext4, FAT, exFAT, NTFS, HFS+, APFS, XFS, btrfs, ISO, UDF, SquashFS, EROFS and F2FS, in images, LUKS containers or LVM volumes, without mounting; shown in columns as in Finder (one per folder on the path, then the selected folder's contents) or, picked in Settings, as a folder tree beside a table; the panes and the columns are resized by dragging and remember their widths; the arrow keys walk the folders and the selected file is previewed as text, hex or a picture, read and decoded off the UI thread (the "auto" check on the preview card, also in Settings, turns that off: a file is then previewed only on "Preview this file"); hash, copy out, drag out, or mount it for the OS under a mount point named after the volume label, with Reveal in Finder / Show in Explorer |
 | Image | create `.stein` or raw images of a whole device or of one partition (used blocks only, LZ4, split, encrypted); partition images record where they came from and restore into a partition; restore any supported container to a disk; verify; manage key slots |
 | Profiles | the dr_stein one-button case: a disk identity plus an image, three buttons, all dry-runnable |
 | Tools | surface scan (read-only) and the fake-flash capacity test (destructive, confirmed by typing the device name) |
@@ -79,10 +79,10 @@ sudo "build/debug/src/app/Dr Stein.app/Contents/MacOS/Dr Stein"
 
 Image files (`.stein`, raw, split raw, qcow2, VHD, VHDX, VMDK, VDI, E01, DMG)
 need no privileges and can be passed on the command line. The in-app relaunch
-carries the selected source, the view and the preview switch along
-(`DRSTEIN_SOURCE`, `DRSTEIN_VIEW`, `DRSTEIN_PREVIEW`) and asks once for the
-passphrase of the first locked container it finds; passphrases never enter
-the environment.
+carries the selected source, the view, the preview switch and Browse's layout
+along (`DRSTEIN_SOURCE`, `DRSTEIN_VIEW`, `DRSTEIN_PREVIEW`,
+`DRSTEIN_BROWSE_LAYOUT`) and asks once for the passphrase of the first locked
+container it finds; passphrases never enter the environment.
 
 ## Layout
 
@@ -112,11 +112,15 @@ DRSTEIN_SCHEME=light DRSTEIN_PALETTE=blue "Dr Stein"     # teal | blurple | blue
 DRSTEIN_CHROME=native "Dr Stein"                          # system title bar for this run
 DRSTEIN_SOURCE=image:/abs/path/disk.img "Dr Stein" disk.img other.img   # select that source at startup and ask once for its first locked container (what the elevated relaunch sets)
 DRSTEIN_PREVIEW=0 DRSTEIN_VIEW=browse "Dr Stein" disk.img   # file previews in Browse off (1: on) for this run; the stored setting is neither read nor written
+DRSTEIN_BROWSE_LAYOUT=list DRSTEIN_VIEW=browse "Dr Stein" disk.img   # Browse as a tree and a table (columns: the default) for this run; neither the layout nor the pane widths are stored
 ```
 
-A script cannot press keys. `browseView.keyPressed(Qt.Key_Down, 0, false)`
-runs Browse's key handler, `browseView.moveSelection(n)` steps the selection
-and `browseView.pageRows()` is what PageDown moves by.
+A script cannot press keys or click.
+`browseView.keyPressed(Qt.Key_Down, 0, false)` runs Browse's key handler in
+either layout, `browseView.moveSelection(n)` steps the selection and
+`browseView.pageRows()` is what PageDown moves by. In the column layout
+`browseView.browser.columnClicked(column, row)` is a click on a row (row -1:
+the column's empty space) and `columnActivated(column, row)` a double-click.
 
 `DRSTEIN_EXPORT_COMPOSITE=/tmp/disk.img build/debug/src/core/drstein_core_tests -tc="export*"`
 writes a 139 MB GPT disk (ext4 + FAT32 from libstein's fixtures) to play with;
@@ -130,28 +134,30 @@ Every view is wired to the library and exercised against image files:
 imaging (create, verify, restore byte-identical), partition editing with
 apply on GPT and MBR (logical partitions included), repair of GPT copies, the
 MBR EBR chain, FAT backup boot / FSInfo / FAT copies and exFAT boot regions,
-hex edits with checksum repair, browsing by keyboard with previews of text,
-hex and pictures (read and decoded on a worker), hash and copy out,
-LUKS1/2 unlock (a wrong passphrase is reported and forgotten; Cancel stops the
-key derivation; the master key is cached per source for the session so
-re-probes skip it; a container the library cannot open says why; VeraCrypt
-trial decryption only on "Try VeraCrypt…"), NFS loopback mounts on macOS named
+hex edits with checksum repair, browsing in columns or in a list, by keyboard,
+with previews of text, hex and pictures (read and decoded on a worker), hash
+and copy out, LUKS1/2 unlock (a wrong passphrase is reported and forgotten;
+Cancel stops the key derivation; the master key is cached per source for the
+session so re-probes skip it; a container the library cannot open says why;
+VeraCrypt trial decryption only on "Try VeraCrypt…"), NFS loopback mounts on
+macOS named
 after the volume label with Reveal in Finder and external unmounts noticed
-within 2 s, surface scans, profile backups. The core tests (73 cases) run on a
+within 2 s, surface scans, profile backups. The core tests (84 cases) run on a
 GPT and an MBR composite disk built from libstein's fixtures and on its LUKS
 fixtures. Written but not covered by a test: the OS re-read of the table after
 an apply on a real disk, the elevated relaunch landing on a disk source
-(tests and scripted runs use image sources), and Browse's keys as real key
-presses (scripted runs and synthetic key events drive the handler; the way
-from the keyboard to it is left to a check by hand). Which pictures preview
-depends on the decoders at hand: Qt alone reads PNG, JPEG, GIF, BMP, ICO/CUR,
-PBM/PGM/PPM, XPM and SVG; macOS adds TIFF, WebP, HEIC, AVIF, JPEG 2000 and
-ICNS through ImageIO; on Linux and Windows TIFF and WebP need Qt's Image
-Formats add-on and HEIC has no decoder (the preview work has not been built
-or run there). A picture without a decoder, or above 64 MiB, shows as hex
-with a note; an SVG that would draw more than 100 000 elements once its
-references are followed, or nests more than 128 levels deep, shows as its
-source; text shows its first 64 KiB; audio and video are not previewed
+(tests and scripted runs use image sources), and Browse driven by real key
+presses and a real pointer, in either layout (scripted runs and synthetic key
+and mouse events drive the handlers; the way from the keyboard and the mouse
+to them, and drag-out from a column, are left to a check by hand). Which
+pictures preview depends on the decoders at hand: Qt alone reads PNG, JPEG,
+GIF, BMP, ICO/CUR, PBM/PGM/PPM, XPM and SVG; macOS adds TIFF, WebP, HEIC,
+AVIF, JPEG 2000 and ICNS through ImageIO; on Linux and Windows TIFF and WebP
+need Qt's Image Formats add-on and HEIC has no decoder (the preview work has
+not been built or run there). A picture without a decoder, or above 64 MiB,
+shows as hex with a note; an SVG that would draw more than 100 000 elements
+once its references are followed, or nests more than 128 levels deep, shows
+as its source; text shows its first 64 KiB; audio and video are not previewed
 (`doc/design/01-application-architecture.md` §10). The LUKS work and what is
 left of it is in `doc/design/06-luks-on-macos.md`. Not done yet: a privileged
 helper (the library's plan), SMART, hex edits and repairs inside containers

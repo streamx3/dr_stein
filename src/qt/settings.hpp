@@ -21,6 +21,12 @@ class Settings : public QObject {
     Q_PROPERTY(bool interactDuringJobs READ interactDuringJobs WRITE setInteractDuringJobs NOTIFY interactDuringJobsChanged)   // expert: keep the UI live while a job runs
     Q_PROPERTY(bool decimalSizes READ decimalSizes WRITE setDecimalSizes NOTIFY decimalSizesChanged)
     Q_PROPERTY(bool previewFiles READ previewFiles WRITE setPreviewFiles NOTIFY previewFilesChanged)   // Browse reads a selected file to show it
+    Q_PROPERTY(QString browseLayout READ browseLayout WRITE setBrowseLayout NOTIFY browseLayoutChanged)   // "columns" | "list"
+    // Browse's panes, in pixels; set when a drag ends. Clamped: tree 150..420, preview 220..560,
+    // one column of the column layout 140..640.
+    Q_PROPERTY(int browseTreeWidth READ browseTreeWidth WRITE setBrowseTreeWidth NOTIFY browseTreeWidthChanged)
+    Q_PROPERTY(int browsePreviewWidth READ browsePreviewWidth WRITE setBrowsePreviewWidth NOTIFY browsePreviewWidthChanged)
+    Q_PROPERTY(int browseColumnWidth READ browseColumnWidth WRITE setBrowseColumnWidth NOTIFY browseColumnWidthChanged)
     Q_PROPERTY(QString profilesDir READ profilesDir WRITE setProfilesDir NOTIFY profilesDirChanged)
     Q_PROPERTY(QStringList recentImages READ recentImages NOTIFY recentImagesChanged)
     Q_PROPERTY(int sidebarWidth READ sidebarWidth WRITE setSidebarWidth NOTIFY sidebarWidthChanged)
@@ -45,6 +51,15 @@ public:
     void setDecimalSizes(bool on);
     bool previewFiles() const;
     void setPreviewFiles(bool on);
+    QString browseLayout() const { return m_browseLayout; }
+    void setBrowseLayout(const QString& layout);   // anything but "list" is "columns"
+    bool browseColumns() const { return m_browseLayout == QLatin1String("columns"); }
+    int browseTreeWidth() const { return m_browseTreeWidth; }
+    void setBrowseTreeWidth(int w);
+    int browsePreviewWidth() const { return m_browsePreviewWidth; }
+    void setBrowsePreviewWidth(int w);
+    int browseColumnWidth() const { return m_browseColumnWidth; }
+    void setBrowseColumnWidth(int w);
     QString profilesDir() const;
     void setProfilesDir(const QString& dir);
     QStringList recentImages() const;
@@ -65,6 +80,10 @@ Q_SIGNALS:
     void interactDuringJobsChanged();
     void decimalSizesChanged();
     void previewFilesChanged();
+    void browseLayoutChanged();
+    void browseTreeWidthChanged();
+    void browsePreviewWidthChanged();
+    void browseColumnWidthChanged();
     void profilesDirChanged();
     void recentImagesChanged();
     void sidebarWidthChanged();
@@ -82,6 +101,11 @@ private:
     // it, so a change then stays in memory.
     bool m_previewFiles = true;
     bool m_previewFromEnv = false;
+    // DRSTEIN_BROWSE_LAYOUT=columns|list the same way for Browse's layout; such a run stores
+    // neither the layout nor the widths of Browse's panes.
+    QString m_browseLayout;
+    bool m_browseFromEnv = false;
+    int m_browseTreeWidth = 200, m_browsePreviewWidth = 280, m_browseColumnWidth = 240;
 };
 
 } // namespace drstein::ui

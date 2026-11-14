@@ -61,6 +61,8 @@ set(DRSTEIN_QML_FILES
   qml/views/TopologyView.qml
   qml/views/HexView.qml
   qml/views/BrowseView.qml
+  qml/views/BrowseColumns.qml
+  qml/views/BrowseList.qml
   qml/views/ImageView.qml
   qml/views/ProfilesView.qml
   qml/views/ToolsView.qml

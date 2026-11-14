@@ -90,9 +90,14 @@ std::shared_ptr<void> renderPreview(const core::Preview& pv) {
 
 // ---- EntriesModel -------------------------------------------------------------------
 
+const std::vector<core::Entry>& EntriesModel::entries() const {
+    static const std::vector<core::Entry> none;
+    return m_listing ? m_listing->entries : none;
+}
+
 QVariant EntriesModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) return {};
-    const auto& e = m_entries[static_cast<std::size_t>(index.row())];
+    const auto& e = entries()[static_cast<std::size_t>(index.row())];
     switch (role) {
     case Name: return qs(e.entry.name);
     case Kind: {
@@ -119,9 +124,18 @@ QHash<int, QByteArray> EntriesModel::roleNames() const {
             {LinkTarget, "linkTarget"}, {IsDir, "isDir"}, {Selected, "selected"}};
 }
 
-void EntriesModel::set(std::vector<core::Entry> entries) {
+QVariantMap EntriesModel::get(int row) const {
+    QVariantMap m;
+    const auto idx = index(row);
+    if (!idx.isValid()) return m;
+    const auto names = roleNames();
+    for (auto it = names.begin(); it != names.end(); ++it) m[QString::fromUtf8(it.value())] = data(idx, it.key());
+    return m;
+}
+
+void EntriesModel::set(std::shared_ptr<const core::Listing> listing) {
     beginResetModel();
-    m_entries = std::move(entries);
+    m_listing = std::move(listing);
     m_selected = -1;
     endResetModel();
 }
@@ -134,6 +148,90 @@ void EntriesModel::setSelected(int row) {
     if (before >= 0) Q_EMIT dataChanged(index(before), index(before), {Selected});
     if (row >= 0) Q_EMIT dataChanged(index(row), index(row), {Selected});
 }
+
+// ---- ColumnsModel -------------------------------------------------------------------
+
+QVariant ColumnsModel::data(const QModelIndex& index, int role) const {
+    if (!index.isValid() || index.row() < 0 || index.row() >= count()) return {};
+    const Slot& s = m_columns[static_cast<std::size_t>(index.row())];
+    const Column& c = s.column;
+    switch (role) {
+    case Title: return c.title;
+    case Current: return c.plan.current;
+    case Peek: return c.plan.peek;
+    case Crumb: return static_cast<int>(c.plan.crumb);
+    case SelectedRow: return c.selectedRow;
+    case Entries: return QVariant::fromValue(s.entries);
+    case EntryCount: return s.entries->rowCount();
+    case Error: return c.error;
+    }
+    return {};
+}
+
+QHash<int, QByteArray> ColumnsModel::roleNames() const {
+    return {{Title, "title"}, {Current, "current"}, {Peek, "peek"}, {Crumb, "crumb"}, {SelectedRow, "selectedRow"},
+            {Entries, "entries"}, {EntryCount, "entryCount"}, {Error, "error"}};
+}
+
+QVariantMap ColumnsModel::get(int row) const {
+    QVariantMap m;
+    const auto idx = index(row);
+    if (!idx.isValid()) return m;
+    const auto names = roleNames();
+    for (auto it = names.begin(); it != names.end(); ++it) m[QString::fromUtf8(it.value())] = data(idx, it.key());
+    return m;
+}
+
+std::vector<core::ColumnPlan> ColumnsModel::plans() const {
+    std::vector<core::ColumnPlan> out;
+    out.reserve(m_columns.size());
+    for (const Slot& s : m_columns) out.push_back(s.column.plan);
+    return out;
+}
+
+void ColumnsModel::truncate(std::size_t n) {
+    if (n >= m_columns.size()) return;
+    beginRemoveRows({}, static_cast<int>(n), count() - 1);
+    // Later: a delegate on its way out may still hold its column's model.
+    for (std::size_t i = n; i < m_columns.size(); ++i) m_columns[i].entries->deleteLater();
+    m_columns.resize(n);
+    endRemoveRows();
+    Q_EMIT countChanged();
+}
+
+void ColumnsModel::append(Column column) {
+    auto* entries = new EntriesModel(this);
+    QQmlEngine::setObjectOwnership(entries, QQmlEngine::CppOwnership);
+    entries->set(column.listing);
+    entries->setSelected(column.selectedRow);
+    beginInsertRows({}, count(), count());
+    m_columns.push_back({std::move(column), entries});
+    endInsertRows();
+    Q_EMIT countChanged();
+}
+
+void ColumnsModel::update(std::size_t i, Column column) {
+    Slot& s = m_columns[i];
+    const Column& was = s.column;
+    QList<int> roles;
+    if (column.title != was.title) roles << Title;
+    if (column.plan.current != was.plan.current) roles << Current;
+    if (column.plan.peek != was.plan.peek) roles << Peek;
+    if (column.plan.crumb != was.plan.crumb) roles << Crumb;
+    if (column.error != was.error) roles << Error;
+    if (column.listing != was.listing) {
+        s.entries->set(column.listing);
+        s.entries->setSelected(column.selectedRow);
+        roles << EntryCount << SelectedRow;
+    } else if (column.selectedRow != was.selectedRow) {
+        s.entries->setSelected(column.selectedRow);
+        roles << SelectedRow;
+    }
+    s.column = std::move(column);
+    if (!roles.isEmpty()) Q_EMIT dataChanged(index(static_cast<int>(i)), index(static_cast<int>(i)), roles);
+}
+
+void ColumnsModel::clear() { truncate(0); }
 
 // ---- DirTreeModel -------------------------------------------------------------------
 
@@ -286,7 +384,14 @@ FileBrowser::FileBrowser(QObject* parent) : QObject(parent) {
     m_stall.setSingleShot(true);
     m_stall.setInterval(kStallMs);
     connect(&m_stall, &QTimer::timeout, this, &FileBrowser::requestStalled);
+    m_peekTimer.setSingleShot(true);
+    m_peekTimer.setInterval(kDebounceMs);
+    connect(&m_peekTimer, &QTimer::timeout, this, [this] {
+        m_peekRow = m_entries.selected();
+        syncColumns();
+    });
     connect(Settings::instance(), &Settings::previewFilesChanged, this, &FileBrowser::previewSettingChanged);
+    connect(Settings::instance(), &Settings::browseLayoutChanged, this, &FileBrowser::layoutChanged);
     connect(Workspace::instance(), &Workspace::uiLockedChanged, this, [this] {
         if (!m_previewHeld || previewHeld()) return;
         sendRequest();
@@ -315,6 +420,7 @@ void FileBrowser::setBusy(bool b) {
         const auto [volume, snapshot] = *std::exchange(m_reopen, std::nullopt);
         openSubvolume(volume, snapshot);
     }
+    if (!m_busy && m_columnsStale) syncColumns();
 }
 
 void FileBrowser::reload() { openSubvolume({}, {}); }
@@ -327,6 +433,12 @@ void FileBrowser::openSubvolume(const QString& volume, const QString& snapshot) 
     }
     m_reopen.reset();
     dropLoader();
+    // Inode numbers mean nothing across browsers: no column and no listing outlives this one.
+    m_peekTimer.stop();
+    m_peekRow = -1;
+    m_columnsStale = false;
+    m_columns.clear();
+    m_listings.clear();
     m_browser.reset();
     m_reason.clear();
     m_subvolume = volume;
@@ -359,14 +471,16 @@ void FileBrowser::openSubvolume(const QString& volume, const QString& snapshot) 
     Q_EMIT changed();
 }
 
-void FileBrowser::listCurrent(const std::string& reselect) {
+void FileBrowser::listCurrent(const std::string& reselect, bool preview) {
+    m_currentError.clear();
     if (!m_browser) {
-        m_entries.set({});
-    } else if (auto listing = m_browser->listCurrent(); !listing) {
+        m_entries.set(nullptr);
+    } else if (auto listing = readCurrent(); !listing) {
         Workspace::instance()->reportError(listing.error());
-        m_entries.set({});
+        m_currentError = qs(core::present(listing.error()).message);
+        m_entries.set(nullptr);
     } else {
-        m_entries.set(std::move(listing->entries));
+        m_entries.set(std::move(*listing));
         if (!reselect.empty()) {
             const auto& rows = m_entries.entries();
             const auto it = std::find_if(rows.begin(), rows.end(), [&](const core::Entry& e) { return e.isDir() && e.entry.name == reselect; });
@@ -375,9 +489,22 @@ void FileBrowser::listCurrent(const std::string& reselect) {
     }
     if (m_browser) m_tree.setCurrentPath(pathText());
     m_hashText = "not computed";
-    refreshPreview(PreviewStart::Now);
+    if (preview) refreshPreview(PreviewStart::Now);
+    // A step to another directory shows the folder it left (up, a jump) at once.
+    m_peekTimer.stop();
+    m_peekRow = m_entries.selected();
+    syncColumns();
     Q_EMIT changed();
     Q_EMIT selectionChanged();
+}
+
+// The column layout lists through the cache, which then holds the listing the next step
+// reuses: the peek that is entered, the parent that is gone up to.
+stein::Expected<std::shared_ptr<const core::Listing>> FileBrowser::readCurrent() {
+    if (columnLayout()) return m_listings.get(*m_browser, m_browser->current());
+    auto listing = m_browser->listCurrent();
+    if (!listing) return stein::fail(listing.error());
+    return std::make_shared<const core::Listing>(std::move(*listing));
 }
 
 QString FileBrowser::title() const { return m_browser ? qs(m_browser->title()) : QString(); }
@@ -682,14 +809,25 @@ void FileBrowser::activate(int row) {
     else select(row);
 }
 
-void FileBrowser::selectRow(int row, PreviewStart start) {
+void FileBrowser::selectRow(int row, PreviewStart start, bool previewStale) {
     const int before = m_entries.selected();
     m_entries.setSelected(row);
     const bool moved = m_entries.selected() != before;
     if (moved) m_hashText = "not computed";
     // A click on the row that is selected already changes nothing that is shown, except that it
     // hurries a preview along and tries an unreadable file once more.
-    if (moved || m_previewLoading || m_previewKind == "unreadable") refreshPreview(start);
+    if (moved || previewStale || m_previewLoading || m_previewKind == "unreadable") refreshPreview(start);
+    if (columnLayout()) {
+        // The peek, which may read a directory, waits for the keyboard's pause like the preview.
+        if (start == PreviewStart::Debounced) {
+            if (moved) m_peekTimer.start();
+        } else {
+            m_peekTimer.stop();
+            m_peekRow = m_entries.selected();
+        }
+        // A click also tries a column that could not be read once more; a key step does not.
+        syncColumns(start == PreviewStart::Now);
+    }
     Q_EMIT selectionChanged();
 }
 
@@ -722,11 +860,23 @@ void FileBrowser::activateSelected() {
 
 void FileBrowser::enter(const QString& name) {
     if (!m_browser || m_busy) return;
-    if (auto r = m_browser->enter(ss(name)); !r) {
+    enterDirectory(ss(name));
+}
+
+bool FileBrowser::enterDirectory(const std::string& name, bool preview) {
+    if (auto r = m_browser->enter(name); !r) {
         Workspace::instance()->reportError(r.error());
-        return;
+        return false;
     }
-    listCurrent();
+    listCurrent({}, preview);
+    return true;
+}
+
+void FileBrowser::enterSelectedAndSelectFirst() {
+    const core::Entry* e = selectedEntry();
+    if (!m_browser || m_busy || !e || !e->isDir()) return;
+    if (const std::string name = e->entry.name; !enterDirectory(name)) return;
+    if (m_entries.rowCount() > 0) selectRow(0, PreviewStart::Debounced);
 }
 
 void FileBrowser::up() {
@@ -746,6 +896,113 @@ void FileBrowser::goTo(const QString& path) {
         return;
     }
     listCurrent();
+}
+
+// ---- The column layout --------------------------------------------------------------------
+
+bool FileBrowser::columnLayout() const { return Settings::instance()->browseColumns(); }
+
+void FileBrowser::layoutChanged() {
+    m_peekTimer.stop();
+    if (!columnLayout()) {
+        m_columns.clear();
+        m_listings.clear();
+        m_peekRow = -1;
+        m_columnsStale = false;
+        return;
+    }
+    m_listings.put(m_entries.listing());
+    m_peekRow = m_entries.selected();
+    syncColumns();
+}
+
+void FileBrowser::syncColumns(bool retryFailed) {
+    if (!columnLayout() || !m_browser) {
+        m_columns.clear();
+        return;
+    }
+    if (m_busy) {
+        m_columnsStale = true;
+        return;
+    }
+    m_columnsStale = false;
+    const auto& rows = m_entries.entries();
+    const core::Entry* peek = m_peekRow >= 0 && static_cast<std::size_t>(m_peekRow) < rows.size() ? &rows[static_cast<std::size_t>(m_peekRow)] : nullptr;
+    const auto plans = core::planColumns(m_browser->breadcrumbs(), peek);
+    const std::size_t kept = core::keptColumns(m_columns.plans(), plans);
+    m_columns.truncate(kept);
+    for (std::size_t i = 0; i < plans.size(); ++i) {
+        if (i < kept) m_columns.update(i, columnFor(plans[i], &m_columns.at(i), retryFailed));
+        else m_columns.append(columnFor(plans[i], nullptr, retryFailed));
+    }
+}
+
+// `before`: what the column showed when it listed the same directory. `retryFailed`: if that
+// listing failed, read the directory again (the cache keeps no failure).
+ColumnsModel::Column FileBrowser::columnFor(const core::ColumnPlan& plan, const ColumnsModel::Column* before, bool retryFailed) {
+    ColumnsModel::Column c;
+    c.plan = plan;
+    c.title = plan.crumb == 0 ? title() : qs(plan.title);
+    if (plan.current) {
+        c.listing = m_entries.listing();
+        c.error = m_currentError;
+        c.selectedRow = m_entries.selected();
+    } else {
+        if (before && (before->listing || !retryFailed)) {
+            c.listing = before->listing;
+            c.error = before->error;
+        } else if (auto listing = m_listings.get(*m_browser, plan.dir)) {
+            c.listing = std::move(*listing);
+        } else {
+            c.error = qs(core::present(listing.error()).message);
+        }
+        const bool sameRow = before && !before->plan.current && before->plan.selectName == plan.selectName;
+        if (plan.peek || !c.listing) c.selectedRow = -1;
+        else c.selectedRow = sameRow ? before->selectedRow : core::rowOfName(*c.listing, plan.selectName, m_browser->caseSensitive());
+    }
+    // What is shown stays cached, so the step back to it finds the very listing its column holds.
+    if (c.listing && !m_listings.find(plan.dir)) m_listings.put(c.listing);
+    return c;
+}
+
+bool FileBrowser::clickColumn(int column, int row) {
+    if (!m_browser || m_busy || column < 0) return false;
+    const auto plans = m_columns.plans();
+    const auto at = static_cast<std::size_t>(column);
+    // A step to another directory leaves the preview alone until the clicked row is selected:
+    // the folder passed on the way is never shown under the clicked file's name, and the last
+    // file's preview stays up for the moment the next one takes, as after a click in the list.
+    bool stepped = false;
+    switch (core::classifyClick(at, plans)) {
+    case core::ColumnClick::Ignore: return false;
+    case core::ColumnClick::SelectInCurrent: break;
+    case core::ColumnClick::JumpThenSelect: {
+        const std::string left = m_browser->jumpTo(plans[at].crumb);
+        if (left.empty()) return false;
+        listCurrent(left, false);
+        stepped = true;
+        break;
+    }
+    case core::ColumnClick::EnterThenSelect:
+        // The folder the peek shows: within the keyboard's pause the selection may have moved on.
+        if (!enterDirectory(plans[at].title, false)) return false;
+        stepped = true;
+        break;
+    }
+    if (row >= 0 && row < m_entries.rowCount()) {
+        selectRow(row, PreviewStart::Now, stepped);
+    } else if (stepped) {
+        refreshPreview(PreviewStart::Now);
+        Q_EMIT selectionChanged();
+    }
+    return true;
+}
+
+void FileBrowser::columnClicked(int column, int row) { clickColumn(column, row); }
+
+void FileBrowser::columnActivated(int column, int row) {
+    if (!clickColumn(column, row) || row < 0 || m_entries.selected() != row) return;
+    activateSelected();
 }
 
 void FileBrowser::hash() {
@@ -844,17 +1101,26 @@ int g_stagingCounter = 0;
 } // namespace
 
 QStringList FileBrowser::stageForDrag(const QList<int>& rows) {
-    QStringList urls;
-    if (!m_browser || m_busy) return urls;
-    quint64 total = 0;
+    if (!m_browser || m_busy) return {};
     std::vector<core::Entry> picked;
-    for (int row : rows) {
-        if (row < 0 || row >= m_entries.rowCount()) continue;
-        const auto& e = m_entries.entries()[static_cast<std::size_t>(row)];
-        if (e.stat.type == stein::fs::FileType::File) total += e.stat.size;
-        picked.push_back(e);
-    }
+    for (int row : rows)
+        if (row >= 0 && row < m_entries.rowCount()) picked.push_back(m_entries.entries()[static_cast<std::size_t>(row)]);
+    return stage(picked);
+}
+
+QStringList FileBrowser::stageColumnForDrag(int column, int row) {
+    if (!m_browser || m_busy || column < 0 || column >= m_columns.count()) return {};
+    const auto& listing = m_columns.at(static_cast<std::size_t>(column)).listing;
+    if (!listing || row < 0 || static_cast<std::size_t>(row) >= listing->entries.size()) return {};
+    return stage({listing->entries[static_cast<std::size_t>(row)]});
+}
+
+QStringList FileBrowser::stage(const std::vector<core::Entry>& picked) {
+    QStringList urls;
     if (picked.empty()) return urls;
+    quint64 total = 0;
+    for (const auto& e : picked)
+        if (e.stat.type == stein::fs::FileType::File) total += e.stat.size;
     if (total > kDragLimit) {
         Workspace::instance()->reportError(stein::Error(stein::ErrorCategory::InvalidArgument, "that is " + core::sizeText(total) + "; drag-out stages a copy first and stops at " + core::sizeText(kDragLimit) + ". Use Copy out\u2026 for this one."));
         return urls;

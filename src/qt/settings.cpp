@@ -4,11 +4,29 @@
 #include <QDir>
 #include <QStandardPaths>
 
+#include <algorithm>
+
 namespace drstein::ui {
 
 namespace {
 Settings* g_instance = nullptr;
+
+struct WidthRange {
+    const char* key;
+    int fallback, least, most;
+};
+constexpr WidthRange kTreeWidth{"ui/browseTreeWidth", 200, 150, 420};
+constexpr WidthRange kPreviewWidth{"ui/browsePreviewWidth", 280, 220, 560};
+constexpr WidthRange kColumnWidth{"ui/browseColumnWidth", 240, 140, 640};
+
+QString layoutName(const QString& stored) { return stored == QLatin1String("list") ? QStringLiteral("list") : QStringLiteral("columns"); }
+
+int storedWidth(const QSettings& s, const WidthRange& r) {
+    bool ok = false;
+    const int w = s.value(r.key, r.fallback).toInt(&ok);
+    return ok ? std::clamp(w, r.least, r.most) : r.fallback;
 }
+} // namespace
 
 Settings::Settings(QObject* parent) : QObject(parent), m_settings("dr_stein", "dr_stein") {
     m_palette = QString::fromUtf8(qgetenv("DRSTEIN_PALETTE"));
@@ -18,6 +36,12 @@ Settings::Settings(QObject* parent) : QObject(parent), m_settings("dr_stein", "d
     const QByteArray preview = qgetenv("DRSTEIN_PREVIEW");
     m_previewFromEnv = !preview.isEmpty();
     m_previewFiles = m_previewFromEnv ? preview != "0" : m_settings.value("ui/previewFiles", true).toBool();
+    const QByteArray layout = qgetenv("DRSTEIN_BROWSE_LAYOUT");
+    m_browseFromEnv = !layout.isEmpty();
+    m_browseLayout = layoutName(m_browseFromEnv ? QString::fromUtf8(layout) : m_settings.value("ui/browseLayout").toString());
+    m_browseTreeWidth = storedWidth(m_settings, kTreeWidth);
+    m_browsePreviewWidth = storedWidth(m_settings, kPreviewWidth);
+    m_browseColumnWidth = storedWidth(m_settings, kColumnWidth);
 }
 
 Settings* Settings::instance() {
@@ -84,6 +108,38 @@ void Settings::setPreviewFiles(bool on) {
     m_previewFiles = on;
     if (!m_previewFromEnv) m_settings.setValue("ui/previewFiles", on);
     Q_EMIT previewFilesChanged();
+}
+
+void Settings::setBrowseLayout(const QString& layout) {
+    const QString name = layoutName(layout);
+    if (name == m_browseLayout) return;
+    m_browseLayout = name;
+    if (!m_browseFromEnv) m_settings.setValue("ui/browseLayout", name);
+    Q_EMIT browseLayoutChanged();
+}
+
+void Settings::setBrowseTreeWidth(int w) {
+    w = std::clamp(w, kTreeWidth.least, kTreeWidth.most);
+    if (w == m_browseTreeWidth) return;
+    m_browseTreeWidth = w;
+    if (!m_browseFromEnv) m_settings.setValue(kTreeWidth.key, w);
+    Q_EMIT browseTreeWidthChanged();
+}
+
+void Settings::setBrowsePreviewWidth(int w) {
+    w = std::clamp(w, kPreviewWidth.least, kPreviewWidth.most);
+    if (w == m_browsePreviewWidth) return;
+    m_browsePreviewWidth = w;
+    if (!m_browseFromEnv) m_settings.setValue(kPreviewWidth.key, w);
+    Q_EMIT browsePreviewWidthChanged();
+}
+
+void Settings::setBrowseColumnWidth(int w) {
+    w = std::clamp(w, kColumnWidth.least, kColumnWidth.most);
+    if (w == m_browseColumnWidth) return;
+    m_browseColumnWidth = w;
+    if (!m_browseFromEnv) m_settings.setValue(kColumnWidth.key, w);
+    Q_EMIT browseColumnWidthChanged();
 }
 
 QString Settings::profilesDir() const {
