@@ -26,6 +26,7 @@ namespace drstein::ui {
 struct PreviewContent {
     QString kind = "none", text, hex, note;
     QImage image;
+    bool remember = true;   // false when what failed was of the moment, not of the file
 };
 
 namespace {
@@ -79,6 +80,7 @@ std::shared_ptr<void> renderPreview(const core::Preview& pv) {
         out->kind = pv.text.empty() ? "hex" : "text";
         out->text = qs(pv.text);
         out->note = decoded.problem;
+        out->remember = !decoded.retry;
         if (!pv.text.empty() && !pv.textNote.empty()) out->note += " · " + qs(pv.textNote);
     } else {
         out->image = decoded.image;
@@ -754,8 +756,10 @@ void FileBrowser::previewArrived(quint64 epoch, quint64 ticket, std::shared_ptr<
         failed->kind = "unreadable";
         failed->note = failure.isEmpty() ? QString("the preview could not be made") : failure;
         content = std::move(failed);
-    } else if (content->kind != "unreadable" && m_request) {
-        // A failed read is not remembered: coming back to the file tries again.
+    } else if (content->kind != "unreadable" && content->remember && m_request) {
+        // A failed read is not remembered: coming back to the file tries again. Nor is an SVG
+        // that waited in vain for earlier ones to finish drawing. One that took too long to draw
+        // is, so that coming back does not draw it again.
         rememberPreview(m_request->key, content);
     }
     settlePreview(*content);

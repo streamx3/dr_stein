@@ -25,7 +25,9 @@ pushed in both repositories (libstein first, then dr_stein with the
 submodule pointer). Real key presses in an active window were never
 exercised. The review was first one reviewer's pass plus a read of the new
 SVG code; the planned multi-reviewer pass ran in the evening and its 28
-findings are in §13.
+findings are in §13. Its one open finding, S4 (the cost of drawing an SVG),
+was then limited rather than fixed, and the rest of the SVG work postponed
+(§14).
 
 Later the same day the owner asked for names that fit and for a column view
 as in Finder, as the default. That was built on top of this work and is
@@ -319,7 +321,7 @@ Open, noticed in the review and left alone:
 cd /Users/andrii/git/dr_stein
 cmake --build --preset debug                       # app + core tests
 cmake --build --preset debug --target all_qmllint  # must print no warnings
-build/debug/src/core/drstein_core_tests            # 89 cases, 4135 assertions (84 before §13, 73 before §12)
+build/debug/src/core/drstein_core_tests            # 95 cases, 4344 assertions (89 before §14, 84 before §13, 73 before §12)
 ```
 
 Scripted run (the app quits by itself only when `DRSTEIN_SCREENSHOT` is set;
@@ -548,7 +550,7 @@ none was possible, by reading the code path.
 | S1 | ids defined twice: the count followed decoys, a 600-link `<use>` chain crashed the worker (SIGBUS) | confirmed, repro (exit 138) | a reference counts every definition |
 | S2 | `url (#id)` with a space: followed by QtSvg, seen by neither gate nor count; crashes and 4.8 GiB | confirmed, repro (exit 138) | gate and count read `url\s*(` |
 | S3 | references in `<style>` rules were not counted: crash, hang; selector matching cost unbounded | confirmed, repro (exit 138) | style rules followed to the elements their selectors may match; rules × elements ≤ 10 M |
-| S4 | element count is not render cost: one path of 90 000 segments took 251 s | confirmed; **not fixed** | mitigated (layers weighted, 1024 px); the stall rule lets the next preview past; see below |
+| S4 | element count is not render cost: one path of 90 000 segments took 251 s | confirmed; **limited, not fixed** | layers weighted, 1024 px; then (§14) 512 KiB, a 2 s limit after which the SVG is text, two drawings at once; a given-up drawing still runs to its end |
 | S5 | 125 nested masked groups took 4 GiB within the limits | confirmed, repro | masks and filters add 2000 each; refused now |
 | S6 | `<?xml-stylesheet href="#name.css"?>` read a host file named "#name.css" | confirmed, repro (canary) | the gate refuses `<?xml-stylesheet` |
 | S7 | the gate reads bytes, QtSvg the declared encoding (UTF-7 on a Qt with ICU) | plausible, not reproduced (this Qt has no ICU) | the gate refuses encodings other than UTF-8, ASCII, Latin-1 |
@@ -580,14 +582,67 @@ overrides never storing settings; `.svgz` never reaching QtSvg.
 
 ### Left open
 - **S4, the cost of drawing an SVG.** No static count bounds it: a single
-  self-crossing path, long dash patterns, thousands of gradient fills. The
-  real fix is rendering SVGs in a separate process with a time limit (and
-  it would also contain a crash). Until then the stall rule lets later
-  previews past a long render, which goes on using a core until it ends or
-  the app quits.
+  self-crossing path, long dash patterns, thousands of gradient fills.
+  Limited in §14 (512 KiB, 2 s, two at once); the real fix, a separate
+  process the app can kill (which would also contain a crash), is designed
+  and postponed in `doc/design/08-svg-out-of-process.md`.
 - **TIFF and other formats ImageIO was not measured on** are refused above
   512 MiB whole, though some (a 16-bit stripped TIFF) would have streamed.
 - C1 was checked with a renumbering test reader; no btrfs image with
   subvolumes was browsed. C3 and C6 were not driven in the app.
 - Not built on Linux or Windows (§7.3), where S7 matters most.
 
+## 14. SVG: a size limit and a time limit, the rest postponed (late 2026-11-14)
+
+The owner set S4 aside as far from the app's priorities, asked what breaks
+if it is left, and then chose two cheap limits: "1/2 MB and 2 seconds of
+rendering. If it didn't render -- it failed." The out-of-process design
+that had been drafted for S4 is kept, postponed, in
+`doc/design/08-svg-out-of-process.md`, with its measurements and the
+questions that were open.
+
+### Built
+- core: `PreviewLimits::svg` is 512 KiB (was 1 MiB); a byte more and the
+  SVG is text, "SVG image above the 512 KiB preview limit".
+- core: `deadline.hpp`, `DeadlineRunner`: a call on a thread of its own,
+  waited for up to a deadline; a late one is abandoned and runs to its end
+  holding a place; past the places a call waits within its deadline or is
+  `Busy` (01 §2.6). Six cases in `test_deadline.cpp`.
+- Qt: `decodePreview()` draws a vetted SVG through a process-wide runner
+  with two places and a 2 s deadline, on a copy of the source. Timed out:
+  text, "SVG image that did not draw within 2 s", remembered in the
+  preview cache. Busy: text, "SVG image not drawn: earlier ones are still
+  drawing", not remembered (`DecodedPreview::retry` →
+  `PreviewContent::remember`).
+- `main()`: after the workers, waits 250 ms for SVG drawings, then `_Exit`.
+
+### Verified
+- `cmake --build --preset debug` clean; qmllint 0 warnings (the old Info in
+  `FrameResizer.qml`); core tests 95/95, 4344 assertions; the deadline cases
+  50 runs in a row without a failure.
+- Scratch harness, the real gate and `decodePreview()` in one process on a
+  worker thread: `aurora-wave.svg` 6 ms as before; `e4_zigzag`,
+  `e3_dash_big`, `e1_fill_12000` refused by size; `e2_blur_10` and
+  self-crossing paths of 48.5 and 436 KiB given up at 2.0 s; after two
+  given up, the next three (`aurora-wave` among them) "earlier ones are
+  still drawing" after 2 s each. Without the limit those files take 2.6 s,
+  10 s, 61 s, and over 90 s for a 394 KiB dashed path (release Qt).
+- Scripted run of the app (exFAT image `svg-exfat.dmg` with seven files,
+  list layout, `DRSTEIN_PREVIEW=1`): aurora an image at once; the 48.5 KiB
+  path "loading", then text with the note at 2 s; the 436 KiB one the same;
+  the blur file, with both places held, "earlier ones are still drawing";
+  the 892 KB file refused by size; a plain SVG drawn again once the first
+  path's drawing ended (about 10 s); back on the 48.5 KiB path, the text at
+  once from the cache, no new drawing. GUI-thread heartbeat: worst gap
+  94 ms. CPU sampled from outside: about 100 % per given-up drawing, 200 %
+  with two, never more. Quit with a drawing running: exit 0 (both runs).
+  A screenshot showed the card with the note. Settings were snapshot before
+  and compared after; `images.lastDir` was written by the run and put back.
+
+### What is left as it is
+- A given-up drawing keeps a core busy until it ends: minutes for a crafted
+  file of a few hundred KiB. Two of them stop all SVG drawing until one
+  ends (other previews are not affected).
+- A crash inside QtSvg still ends the app.
+- Everything else on SVG is in 08 §5–§6: the separate process, tests of
+  `svgCostRefusal` (deferred by the owner), S7, Linux and Windows.

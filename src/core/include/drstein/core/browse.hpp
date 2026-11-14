@@ -97,7 +97,7 @@ struct Preview {
 struct PreviewLimits {
     stein::ByteCount head = 256 * stein::KiB;   // read first and sniffed; all a text or hex preview shows
     stein::ByteCount image = 64 * stein::MiB;   // a recognised image up to this size is read whole
-    stein::ByteCount svg = 1 * stein::MiB;      // an SVG up to this size is read whole and vetted
+    stein::ByteCount svg = 512 * stein::KiB;    // an SVG up to this size is read whole and vetted; above it, text
     stein::ByteCount chunk = 1 * stein::MiB;    // read size past the head; cancellation is checked per chunk
     stein::ByteCount text = 64 * stein::KiB;    // the most of a text that is shown: more stalls a text view on every file
 };

@@ -217,7 +217,7 @@ TEST_CASE("image formats are told by their magic numbers, and near misses are no
 TEST_CASE("a picture larger than the head is read whole, in chunks") {
     CHECK(PreviewLimits{}.head == 256 * KiB);
     CHECK(PreviewLimits{}.image == 64 * MiB);
-    CHECK(PreviewLimits{}.svg == 1 * MiB);
+    CHECK(PreviewLimits{}.svg == 512 * KiB);
     CHECK(PreviewLimits{}.chunk == 1 * MiB);
 
     const auto content = binary(kPngMagic, 1000);
@@ -492,6 +492,17 @@ TEST_CASE("an SVG is a picture only when it is small and keeps to itself") {
         CHECK(pv->text == large.substr(0, 64));
         CHECK(pv->note == "first 64 B of " + sizeBinary(large.size()) + " · SVG image above the 4 KiB preview limit: shown as text");
         CHECK(reader.reads.size() == 1);
+    }
+    SUBCASE("the default SVG limit is 512 KiB: a byte more and it is text") {
+        const std::size_t frame = open.size() + std::string_view("<!--  -->").size() + body.size() + std::string_view("</svg>\n").size();
+        const std::string atLimit = open + "<!-- " + std::string(512 * KiB - frame, '.') + " -->" + body + "</svg>\n";
+        REQUIRE(atLimit.size() == 512 * KiB);
+        CHECK(previewOf(atLimit).kind == PreviewKind::Image);
+        const std::string over = open + "<!-- " + std::string(512 * KiB - frame + 1, '.') + " -->" + body + "</svg>\n";
+        const auto pv = previewOf(over);
+        CHECK(pv.kind == PreviewKind::Text);
+        CHECK(pv.imageFormat == "svg");
+        CHECK(pv.note == "first 64 KiB of " + sizeBinary(over.size()) + " · SVG image above the 512 KiB preview limit: shown as text");
     }
     SUBCASE("cancelled while the rest of it is read") {
         const std::string padded = open + "<!-- " + std::string(600, '.') + " -->" + body + "</svg>\n";

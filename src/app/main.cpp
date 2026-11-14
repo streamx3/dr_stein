@@ -14,6 +14,7 @@
 #include "codicon_provider.hpp"
 #include "device_watcher.hpp"
 #include "file_browser.hpp"
+#include "preview_decode.hpp"
 #include "workspace.hpp"
 
 #include <QGuiApplication>
@@ -96,7 +97,9 @@ int main(int argc, char* argv[]) {
     // The QML objects go first: each FileBrowser tells its preview worker to stop. A worker may
     // still be in a decode, inside Qt, which the static destructors run by a return from main
     // take down under it (a crash on quit). It gets a moment; then the process ends without them.
+    // So does an SVG drawing that was given up: it may run on for minutes, so it gets less.
     engineOwner.reset();
-    if (!drstein::core::PreviewLoader::waitForWorkers(std::chrono::seconds(1))) std::_Exit(code);
+    if (!drstein::core::PreviewLoader::waitForWorkers(std::chrono::seconds(1)) || !drstein::ui::waitForSvgDrawings(std::chrono::milliseconds(250)))
+        std::_Exit(code);
     return code;
 }

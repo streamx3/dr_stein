@@ -5,6 +5,7 @@
 #include "util.hpp"
 
 #include "drstein/core/browse.hpp"
+#include "drstein/core/deadline.hpp"
 
 #include <QBuffer>
 #include <QByteArray>
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -53,6 +55,19 @@ constexpr qint64 kMaxSvgElements = 100'000;
 // stack: a chain of 500 <use> overflows macOS's 512 KiB thread stack, 300 do not.
 constexpr int kMaxSvgDepth = 128;
 constexpr qint64 kMaxSvgCountingSteps = 4'000'000;   // the count itself stays cheap on any file
+
+// No count bounds what drawing an SVG costs (one self-crossing path of 90 000 segments took
+// 251 s), and QtSvg cannot be interrupted: a drawing is waited for this long, then given up as a
+// failure and left to end on its own thread.
+constexpr std::chrono::milliseconds kSvgDrawDeadline{2000};
+// Drawings at once, the given-up ones included: each keeps a core busy until it ends.
+constexpr std::size_t kSvgDrawPlaces = 2;
+
+// Never destroyed: a drawing that was given up gives its place back whenever it ends.
+core::DeadlineRunner& svgDrawings() {
+    static auto* runner = new core::DeadlineRunner(kSvgDrawPlaces);
+    return *runner;
+}
 
 // What a style sheet may cost to apply: QtSvg matches every rule against every element.
 constexpr qint64 kMaxSvgStyleMatches = 10'000'000;
@@ -416,7 +431,26 @@ DecodedPreview decodePreview(std::span<const std::byte> bytes, const QString& sn
         if (!out.problem.isEmpty()) return out;
     }
 
-    QtImage qt = decodeWithQt(bytes, vettedSvg, box);
+    QtImage qt;
+    if (vettedSvg) {
+        // On a thread of its own (std::thread's stack, the same 512 KiB on macOS as the preview
+        // worker's, for which kMaxSvgDepth was measured), with its own copy of the source: a
+        // drawing given up outlives this call and the bytes it was handed.
+        auto source = std::make_shared<const std::vector<std::byte>>(bytes.begin(), bytes.end());
+        auto drawn = std::make_shared<QtImage>();
+        switch (svgDrawings().run([source, drawn, box] { *drawn = decodeWithQt(*source, true, box); }, kSvgDrawDeadline)) {
+        case core::DeadlineRunner::Outcome::Finished: qt = std::move(*drawn); break;
+        case core::DeadlineRunner::Outcome::TimedOut:
+            out.problem = QStringLiteral("SVG image that did not draw within %1 s: shown as text").arg(kSvgDrawDeadline.count() / 1000);
+            return out;
+        case core::DeadlineRunner::Outcome::Busy:
+            out.problem = QStringLiteral("SVG image not drawn: earlier ones are still drawing");
+            out.retry = true;
+            return out;
+        }
+    } else {
+        qt = decodeWithQt(bytes, false, box);
+    }
     if (!qt.format.isEmpty()) out.format = qt.format;
     out.sourceSize = qt.sourceSize;
     if (!qt.image.isNull()) {
@@ -450,5 +484,7 @@ DecodedPreview decodePreview(std::span<const std::byte> bytes, const QString& sn
     }
     return out;
 }
+
+bool waitForSvgDrawings(std::chrono::milliseconds patience) { return svgDrawings().waitUntilIdle(patience); }
 
 } // namespace drstein::ui

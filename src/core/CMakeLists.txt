@@ -9,6 +9,7 @@ add_library(drstein_core STATIC
   src/browse.cpp
   src/columns.cpp
   src/preview_loader.cpp
+  src/deadline.cpp
   src/imaging.cpp
   src/partition_edit.cpp
   src/media.cpp
@@ -37,6 +38,7 @@ if(DRSTEIN_BUILD_TESTS)
     tests/test_browse.cpp
     tests/test_columns.cpp
     tests/test_preview.cpp
+    tests/test_deadline.cpp
     tests/test_fixture_export.cpp
     tests/test_luks.cpp
   )

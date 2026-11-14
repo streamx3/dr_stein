@@ -229,7 +229,7 @@ public:
 };
 ```
 
-### 2.6 Files inside a filesystem (`browse.hpp`, `preview_loader.hpp`, `columns.hpp`)
+### 2.6 Files inside a filesystem (`browse.hpp`, `preview_loader.hpp`, `deadline.hpp`, `columns.hpp`)
 
 ```cpp
 struct Entry { fs::DirEntry entry; fs::Stat stat; std::string linkTarget; std::string sizeText, mtimeText, modeText; };
@@ -284,7 +284,7 @@ struct Preview {
 struct PreviewLimits {
     stein::ByteCount head = 256 * stein::KiB;   // read first and sniffed; all a text or hex preview shows
     stein::ByteCount image = 64 * stein::MiB;   // a recognised image up to this size is read whole
-    stein::ByteCount svg = 1 * stein::MiB;      // an SVG up to this size is read whole and vetted
+    stein::ByteCount svg = 512 * stein::KiB;    // an SVG up to this size is read whole and vetted; above it, text
     stein::ByteCount chunk = 1 * stein::MiB;    // read size past the head; cancellation is checked per chunk
     stein::ByteCount text = 64 * stein::KiB;    // the most of a text that is shown: more stalls a text view on every file
 };
@@ -427,6 +427,34 @@ What a superseded request cannot stop is the call the worker is in: one
 `read()` call (a chunk at most) or a transform (a decode). The next request
 waits behind it. What the app builds on this (decoders, timing, the
 keyboard) is in §10.
+
+`deadline.hpp` runs a call that cannot be interrupted against a deadline
+(added 2026-11-14 for drawing SVGs, §10):
+
+```cpp
+class DeadlineRunner {
+public:
+    enum class Outcome : std::uint8_t { Finished, TimedOut, Busy };
+    explicit DeadlineRunner(std::size_t places);   // calls at once, the abandoned ones included; at least 1
+    ~DeadlineRunner();                             // never waits for a call
+    Outcome run(std::function<void()> call, std::chrono::milliseconds deadline);
+    std::size_t running() const;
+    bool waitUntilIdle(std::chrono::milliseconds patience) const;
+};
+```
+
+Each call runs on a thread of its own, and `run()` waits for it at most the
+deadline, counted from the call: waiting for a place takes from it. A call
+that never got a place is `Busy` and never starts. A call still running at
+the deadline is `TimedOut` and abandoned, not stopped: it runs to its end,
+keeps its place until then, and is destroyed on its own thread before it
+gives the place back, so `waitUntilIdle()` finding none means none of what
+the calls captured is left either. The call must own what it touches (it may
+outlive the caller and the runner); the caller reads its result only after
+`Finished`. An exception out of a call that finished in time is rethrown by
+`run()`; one out of an abandoned call is dropped. Stopping a call for real
+would need a separate process: `doc/design/08-svg-out-of-process.md`
+(postponed).
 
 `columns.hpp` holds the decisions of Browse's column layout (§11), as
 Finder shows a folder: one column per breadcrumb, the last one current, and
@@ -666,6 +694,12 @@ its near misses, the limits, cancellation between chunks, safe and unsafe
 SVGs on files served from memory (`mount::makeSingleFileReader`), and the
 loader's guarantees with a reader that blocks until the test lets it go.
 It synchronises with condition variables; timeouts are failure bounds only.
+`test_deadline.cpp` covers `deadline.hpp`: a call in time, a late one given
+up at its deadline that runs on and lets go of what it captured before its
+place is free, a call that waits for a place and one that finds none (and
+never starts), exceptions in time and too late, a runner destroyed before
+its abandoned call, and a bound of 0 meaning 1. Calls are held at a gate
+the test opens, so only the deadlines themselves are timed.
 `test_columns.cpp` covers `columns.hpp`: the plans for the root, a deep path
 with Unicode names, a selected file (no peek) and a selected folder (a
 peek), the peek following `stat` rather than the directory entry's type;
@@ -800,7 +834,8 @@ with the reason.
   worker to stop), waits up to 1 s for the workers, and if one is still in
   a decode ends the process with `_Exit` instead of running static
   destructors under it: quitting during an SVG render crashed 2 runs in 4
-  before.
+  before. An SVG drawing that was given up (below) may run on for minutes,
+  so it gets 250 ms more, and then the same `_Exit`.
 - **Off.** `Settings.previewFiles` is the "auto" check on the preview card
   and "Preview files in Browse" in Settings; `DRSTEIN_PREVIEW=0|1` decides
   it for one run, and the elevated relaunch passes it on. Switching it off
@@ -844,6 +879,19 @@ than 512 px is drawn at 512). It tries, in order:
    the picture: 125 nested masks took 4 GiB) and draws a marker once per
    point of its path. An SVG is drawn at 1024 px at most: the pane is 560
    points wide, and fills, masks and blurs cost by the area.
+   Since 2026-11-14 an SVG above 512 KiB (it was 1 MiB) is not read whole
+   and is shown as text, and one that passes everything above is drawn
+   through a `core::DeadlineRunner` (§2.6), on a thread of its own with a
+   copy of its source, and given up when it has not drawn within 2 s: it is
+   shown as text, "SVG image that did not draw within 2 s", and that preview
+   is remembered like any other, so coming back to the file does not draw it
+   again. A drawing given up cannot be stopped: it runs on unseen and keeps a
+   core busy until it ends. At most two SVGs draw at once, the given-up ones
+   included, so at most two cores; past that, an SVG waits for a place within
+   its own 2 s, or is shown as text with "earlier ones are still drawing",
+   which is not remembered (`DecodedPreview::retry`): coming back tries again.
+   The drawing thread is a `std::thread` like the worker, with the same
+   512 KiB stack on macOS for which the depth limit was measured.
 2. **The platform decoder**, for what Qt has no decoder for, cannot read or
    finds too large: ImageIO on macOS (`preview_decode_mac.cpp`). It makes
    the thumbnail without holding the whole picture only for baseline JPEG,
@@ -918,10 +966,16 @@ Not covered:
   build). An SVG within the limits can still be slow by sheer drawing, and
   no count bounds that: one self-crossing path of 90 000 segments with an
   even-odd fill took 251 s, a dashed path of 60 000 segments over 300 s,
-  12 000 gradient-filled rectangles about 7 s at 1024 px. The 10 s rule
-  above lets the next preview past such a render; the render itself runs
-  on until it ends or the app quits. Only rendering in a separate process
-  with a time limit would bound it.
+  12 000 gradient-filled rectangles about 7 s at 1024 px. The 512 KiB limit
+  turns those three files away, but not much smaller ones (release Qt on
+  this Mac, no limit: a self-crossing path of 5 000 segments, 48.5 KiB, 10 s;
+  of 45 000, 436 KiB, 61 s; a dashed path of 45 000 segments, 394 KiB, over
+  90 s; 8 000 gradient rectangles, 383 KiB, 4.6 s; ten full-picture blurs,
+  851 bytes, 2.6 s). The 2 s limit bounds the wait for a preview, not the
+  work: a drawing given up runs to its end on its own thread, two at most.
+  Stopping it needs a separate process, designed and postponed in
+  `doc/design/08-svg-out-of-process.md`. The 10 s rule above no longer
+  concerns SVGs, whose transform returns within about 2 s.
 - **Tests.** The core half is tested (§6). `src/qt` and the QML have no
   test in the repository: the decoders, `FileBrowser` and the view were
   checked with scratch programs and scripted runs on macOS. The key handler
@@ -931,7 +985,9 @@ Not covered:
   (`svgCostRefusal`) has no test of its own; the owner deferred those tests.
   The review of 2026-11-14 checked it against the reviewers' crafted files
   with a scratch program (`doc/notes/2026-11-14-browse-preview-status.md`
-  §13).
+  §13). The 2 s limit and the two places are `core::DeadlineRunner`'s, which
+  `test_deadline.cpp` covers; the SVG half was checked with a scratch
+  program and a scripted run (status note §14).
   None of this has been built or run on Linux or Windows.
 
 ## 11. Browse: the column view and the panes (2026-11-14)
