@@ -4,6 +4,8 @@
 #include "drstein/core/format.hpp"
 #include "job_runner.hpp"
 #include "mounts_model.hpp"
+#include "preview_decode.hpp"
+#include "settings.hpp"
 #include "stein/core/strings.hpp"
 #include "util.hpp"
 #include "workspace.hpp"
@@ -11,10 +13,80 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
+#include <QMetaObject>
 #include <QStandardPaths>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace drstein::ui {
+
+// ---- The preview worker's half ---------------------------------------------------------
+
+struct PreviewContent {
+    QString kind = "none", text, hex, note;
+    QImage image;
+};
+
+namespace {
+
+constexpr int kDebounceMs = 80;   // a pause this long in keyboard movement asks for the preview
+constexpr int kGraceMs = 150;     // the previous preview stays up this long while the next one loads
+// A request that waits this long behind one that was given up gets a new worker: a decode or a
+// read on failing media cannot be interrupted, and would hold every later preview back.
+constexpr int kStallMs = 10000;
+constexpr int kMaxAbandonedWorkers = 3;   // per browser; a disk that swallows that many is left alone
+constexpr std::size_t kHexBytes = 4096;
+constexpr std::size_t kCacheEntries = 12;
+constexpr qsizetype kCacheBytes = 96 * 1024 * 1024;
+
+qsizetype costOf(const PreviewContent& c) { return c.image.sizeInBytes() + (c.text.size() + c.hex.size()) * static_cast<qsizetype>(sizeof(QChar)); }
+
+QString kindName(core::PreviewKind kind) {
+    using core::PreviewKind;
+    switch (kind) {
+    case PreviewKind::Empty: return "empty";
+    case PreviewKind::Text: return "text";
+    case PreviewKind::Hex: return "hex";
+    case PreviewKind::Image: return "image";
+    case PreviewKind::Unreadable: return "unreadable";
+    }
+    return "empty";
+}
+
+// PreviewLoader's transform: on the worker, from what was read to what is shown, so that the
+// decode and the string conversions stay off the GUI thread and the file's bytes never reach
+// it. A free function on purpose: it may still run when the FileBrowser is gone.
+std::shared_ptr<void> renderPreview(const core::Preview& pv) {
+    auto out = std::make_shared<PreviewContent>();
+    out->kind = kindName(pv.kind);
+    out->note = qs(pv.note);
+    if (pv.kind == core::PreviewKind::Text) out->text = qs(pv.text);
+    if (!pv.bytes.empty()) {
+        const std::size_t n = std::min(pv.bytes.size(), kHexBytes);
+        out->hex = qs(stein::hexDump(std::span<const std::byte>(pv.bytes.data(), n)));
+        if (pv.bytes.size() > n) out->hex += "\n… first 4 KiB shown";
+    }
+    if (pv.kind != core::PreviewKind::Image) return out;
+
+    // imageFormat goes through as core set it: "svg" there means the text was vetted.
+    const DecodedPreview decoded = decodePreview(pv.bytes, qs(pv.imageFormat));
+    if (decoded.image.isNull()) {
+        // The source of an SVG says more than its bytes in hex.
+        out->kind = pv.text.empty() ? "hex" : "text";
+        out->text = qs(pv.text);
+        out->note = decoded.problem;
+        if (!pv.text.empty() && !pv.textNote.empty()) out->note += " · " + qs(pv.textNote);
+    } else {
+        out->image = decoded.image;
+        out->note = qs(core::imageFormatLabel(decoded.format.isEmpty() ? pv.imageFormat : ss(decoded.format)));
+        if (!decoded.sourceSize.isEmpty()) out->note += QString(" · %1 × %2").arg(decoded.sourceSize.width()).arg(decoded.sourceSize.height());
+    }
+    if (!pv.note.empty()) out->note += " · " + qs(pv.note);
+    return out;
+}
+
+} // namespace
 
 // ---- EntriesModel -------------------------------------------------------------------
 
@@ -202,6 +274,24 @@ QModelIndex DirTreeModel::indexForPath(const QString& path) {
 // ---- FileBrowser -----------------------------------------------------------------------
 
 FileBrowser::FileBrowser(QObject* parent) : QObject(parent) {
+    m_debounce.setSingleShot(true);
+    m_debounce.setInterval(kDebounceMs);
+    connect(&m_debounce, &QTimer::timeout, this, [this] {
+        sendRequest();
+        Q_EMIT selectionChanged();
+    });
+    m_grace.setSingleShot(true);
+    m_grace.setInterval(kGraceMs);
+    connect(&m_grace, &QTimer::timeout, this, &FileBrowser::graceEnded);
+    m_stall.setSingleShot(true);
+    m_stall.setInterval(kStallMs);
+    connect(&m_stall, &QTimer::timeout, this, &FileBrowser::requestStalled);
+    connect(Settings::instance(), &Settings::previewFilesChanged, this, &FileBrowser::previewSettingChanged);
+    connect(Workspace::instance(), &Workspace::uiLockedChanged, this, [this] {
+        if (!m_previewHeld || previewHeld()) return;
+        sendRequest();
+        Q_EMIT selectionChanged();
+    });
     connect(Workspace::instance(), &Workspace::selectionChanged, this, [this] {
         if (Workspace::instance()->selectedPath() != m_path || !m_browser) reload();
     });
@@ -215,15 +305,28 @@ FileBrowser::FileBrowser(QObject* parent) : QObject(parent) {
     reload();
 }
 
+FileBrowser::~FileBrowser() { m_loader.reset(); }
+
 void FileBrowser::setBusy(bool b) {
     if (b == m_busy) return;
     m_busy = b;
     Q_EMIT changed();
+    if (!m_busy && m_reopen) {
+        const auto [volume, snapshot] = *std::exchange(m_reopen, std::nullopt);
+        openSubvolume(volume, snapshot);
+    }
 }
 
 void FileBrowser::reload() { openSubvolume({}, {}); }
 
 void FileBrowser::openSubvolume(const QString& volume, const QString& snapshot) {
+    if (m_busy) {
+        // One of this object's jobs is reading through m_browser on the job thread.
+        m_reopen.emplace(volume, snapshot);
+        return;
+    }
+    m_reopen.reset();
+    dropLoader();
     m_browser.reset();
     m_reason.clear();
     m_subvolume = volume;
@@ -256,23 +359,23 @@ void FileBrowser::openSubvolume(const QString& volume, const QString& snapshot) 
     Q_EMIT changed();
 }
 
-void FileBrowser::listCurrent() {
+void FileBrowser::listCurrent(const std::string& reselect) {
     if (!m_browser) {
         m_entries.set({});
-        updatePreview();
-        Q_EMIT changed();
-        Q_EMIT selectionChanged();
-        return;
-    }
-    auto listing = m_browser->listCurrent();
-    if (!listing) {
+    } else if (auto listing = m_browser->listCurrent(); !listing) {
         Workspace::instance()->reportError(listing.error());
         m_entries.set({});
     } else {
         m_entries.set(std::move(listing->entries));
+        if (!reselect.empty()) {
+            const auto& rows = m_entries.entries();
+            const auto it = std::find_if(rows.begin(), rows.end(), [&](const core::Entry& e) { return e.isDir() && e.entry.name == reselect; });
+            if (it != rows.end()) m_entries.setSelected(static_cast<int>(it - rows.begin()));
+        }
     }
-    m_tree.setCurrentPath(pathText());
-    updatePreview();
+    if (m_browser) m_tree.setCurrentPath(pathText());
+    m_hashText = "not computed";
+    refreshPreview(PreviewStart::Now);
     Q_EMIT changed();
     Q_EMIT selectionChanged();
 }
@@ -321,6 +424,11 @@ QVariantList FileBrowser::subvolumes() const {
 
 bool FileBrowser::canMount() const { return m_browser && core::MountManager::available(); }
 
+const core::Entry* FileBrowser::selectedEntry() const {
+    const int i = m_entries.selected();
+    return i < 0 ? nullptr : &m_entries.entries()[static_cast<std::size_t>(i)];
+}
+
 QString FileBrowser::selectedName() const {
     const int i = m_entries.selected();
     return i < 0 ? QString() : qs(m_entries.entries()[static_cast<std::size_t>(i)].entry.name);
@@ -354,43 +462,218 @@ void FileBrowser::setShowHex(bool on) {
     Q_EMIT selectionChanged();
 }
 
-void FileBrowser::updatePreview() {
-    m_previewKind = "none";
-    m_previewText.clear();
-    m_previewHex.clear();
-    m_previewImage.clear();
-    m_previewNote.clear();
-    m_hashText = "not computed";
-    const int i = m_entries.selected();
-    if (!m_browser || i < 0) return;
-    const auto& e = m_entries.entries()[static_cast<std::size_t>(i)];
-    auto pv = core::preview(m_browser->reader(), e.entry.inode, e.stat);
-    if (!pv) {
-        m_previewKind = "unreadable";
-        m_previewNote = qs(pv.error().message());
+// ---- Preview: the GUI thread's half ---------------------------------------------------------
+
+bool FileBrowser::previewEnabled() const { return Settings::instance()->previewFiles(); }
+
+// A job that holds the UI may be writing to the disk under the reader; and while a reload waits
+// for this object's own job, m_path no longer names the browsed node in the workspace's tree.
+bool FileBrowser::previewHeld() const { return Workspace::instance()->uiLocked() || m_reopen.has_value(); }
+
+void FileBrowser::refreshPreview(PreviewStart start) {
+    const core::Entry* e = selectedEntry();
+    if (!m_browser || !e) return settlePreview({});
+    if (e->stat.type != stein::fs::FileType::File || e->stat.size == 0) {
+        // Nothing to read: core answers these before it touches the reader.
+        PreviewContent described;
+        described.kind = "empty";
+        if (auto pv = core::preview(m_browser->reader(), e->entry.inode, e->stat)) described.note = qs(pv->note);
+        if (!e->linkTarget.empty()) described.note = "→ " + qs(e->linkTarget);
+        return settlePreview(described);
+    }
+    const PreviewKey key{e->entry.inode.id, e->stat.size, e->stat.mtime};
+    if (m_previewLoading && m_request && m_request->key == key) {
+        // Already wanted. A click does not wait for the keyboard's pause.
+        if (start != PreviewStart::Debounced && m_debounce.isActive()) {
+            m_debounce.stop();
+            sendRequest();
+        }
         return;
     }
-    using core::PreviewKind;
-    switch (pv->kind) {
-    case PreviewKind::Empty: m_previewKind = "empty"; break;
-    case PreviewKind::Text: m_previewKind = "text"; break;
-    case PreviewKind::Hex: m_previewKind = "hex"; break;
-    case PreviewKind::Image: m_previewKind = "image"; break;
-    case PreviewKind::Unreadable: m_previewKind = "unreadable"; break;
+    if (start != PreviewStart::Forced && !previewEnabled()) {
+        PreviewContent off;
+        off.kind = "off";
+        return settlePreview(off);
     }
-    m_previewNote = qs(pv->note);
-    if (pv->kind == PreviewKind::Text) m_previewText = qs(pv->text);
-    if (!pv->bytes.empty()) {
-        const std::size_t n = std::min<std::size_t>(pv->bytes.size(), 4096);
-        m_previewHex = qs(stein::hexDump(std::span<const std::byte>(pv->bytes.data(), n)));
-        if (pv->bytes.size() > n) m_previewHex += "\n… first 4 KiB shown";
+    if (const auto known = cachedPreview(key)) return settlePreview(*known);
+
+    m_debounce.stop();
+    cancelTicket();
+    if (std::exchange(m_previewHeld, false)) showLoading();
+    m_request = PreviewRequest{key, e->entry.inode, e->stat};
+    if (!m_previewLoading) {
+        m_previewLoading = true;
+        m_grace.start();
     }
-    if (pv->kind == PreviewKind::Image) {
-        const QByteArray raw(reinterpret_cast<const char*>(pv->bytes.data()), static_cast<qsizetype>(pv->bytes.size()));
-        m_previewImage = "data:image/" + qs(pv->imageFormat) + ";base64," + QString::fromLatin1(raw.toBase64());
-    }
-    if (!e.linkTarget.empty()) m_previewNote = "→ " + qs(e.linkTarget);
+    if (start == PreviewStart::Debounced) m_debounce.start();
+    else sendRequest();
 }
+
+void FileBrowser::settlePreview(const PreviewContent& content) {
+    m_debounce.stop();
+    m_grace.stop();
+    cancelTicket();
+    m_request.reset();
+    m_previewLoading = false;
+    m_previewHeld = false;
+    m_previewKind = content.kind;
+    m_previewText = content.text;
+    m_previewHex = content.hex;
+    m_previewImage = content.image;
+    m_previewNote = content.note;
+}
+
+void FileBrowser::showLoading(const QString& note) {
+    m_grace.stop();
+    m_previewKind = "loading";
+    m_previewText.clear();
+    m_previewHex.clear();
+    m_previewImage = {};
+    m_previewNote = note;
+}
+
+void FileBrowser::graceEnded() {
+    if (!m_previewLoading) return;
+    showLoading();
+    Q_EMIT selectionChanged();
+}
+
+void FileBrowser::cancelTicket() {
+    m_stall.stop();
+    if (!m_ticket) return;
+    if (m_loader) m_loader->cancel();
+    m_ticket = 0;
+    m_workerMayLag = true;
+}
+
+void FileBrowser::sendRequest() {
+    if (!m_request) return;
+    if (previewHeld()) {
+        m_previewHeld = true;
+        showLoading("waiting for the running job");
+        return;
+    }
+    if (std::exchange(m_previewHeld, false)) showLoading();
+    if (!ensureLoader()) {
+        PreviewContent failed;
+        failed.kind = "unreadable";
+        failed.note = m_loaderError;
+        return settlePreview(failed);
+    }
+    cancelTicket();
+    m_ticket = m_loader->request(m_request->inode, m_request->stat);
+    m_stall.start();
+}
+
+bool FileBrowser::ensureLoader() {
+    if (m_loader) return true;
+    if (!m_loaderError.isEmpty()) return false;
+    const Workspace* w = Workspace::instance();
+    if (!m_browser || !w->tree()) {
+        m_loaderError = "the source is no longer open";
+        return false;
+    }
+    // The same node and options m_browser was opened with (openSubvolume).
+    stein::fs::ReaderOptions o;
+    o.volume = ss(m_subvolume);
+    o.snapshot = ss(m_snapshot);
+    auto reader = core::openReader(*w->tree(), m_path, o);
+    if (!reader) {
+        m_loaderError = qs(core::present(reader.error()).message);
+        return false;
+    }
+    const quint64 epoch = ++m_epoch;
+    m_workerMayLag = false;
+    m_loader = std::make_unique<core::PreviewLoader>(std::move(*reader), core::PreviewLimits{}, &renderPreview, [this, epoch](core::PreviewResult result) {
+        // On the worker, under the loader's lock: `this` is only the address the result is posted
+        // to, which is safe because nothing is delivered once ~PreviewLoader has returned. The
+        // file's bytes end here; what is shown crosses over.
+        const quint64 ticket = result.ticket;
+        auto content = result.preview ? std::static_pointer_cast<const PreviewContent>(result.decoded) : nullptr;
+        QString failure = result.preview ? QString() : qs(result.preview.error().message());
+        result = {};
+        QMetaObject::invokeMethod(this, [this, epoch, ticket, content = std::move(content), failure = std::move(failure)] { previewArrived(epoch, ticket, content, failure); },
+                                  Qt::QueuedConnection);
+    });
+    return true;
+}
+
+void FileBrowser::dropLoader() {
+    m_debounce.stop();
+    m_grace.stop();
+    m_stall.stop();
+    m_loader.reset();
+    ++m_epoch;
+    m_ticket = 0;
+    m_request.reset();
+    m_previewLoading = false;
+    m_previewHeld = false;
+    m_workerMayLag = false;
+    m_abandonedWorkers = 0;
+    m_loaderError.clear();
+    m_cache.clear();
+}
+
+void FileBrowser::previewArrived(quint64 epoch, quint64 ticket, std::shared_ptr<const PreviewContent> content, const QString& failure) {
+    if (epoch != m_epoch || ticket != m_ticket) return;
+    m_ticket = 0;
+    m_workerMayLag = false;
+    if (!content) {
+        auto failed = std::make_shared<PreviewContent>();
+        failed->kind = "unreadable";
+        failed->note = failure.isEmpty() ? QString("the preview could not be made") : failure;
+        content = std::move(failed);
+    } else if (content->kind != "unreadable" && m_request) {
+        // A failed read is not remembered: coming back to the file tries again.
+        rememberPreview(m_request->key, content);
+    }
+    settlePreview(*content);
+    Q_EMIT selectionChanged();
+}
+
+void FileBrowser::requestStalled() {
+    if (!m_ticket || !m_workerMayLag || m_abandonedWorkers >= kMaxAbandonedWorkers) return;
+    // The old worker is left to finish what it is in; it owns its reader and delivers nothing more.
+    ++m_abandonedWorkers;
+    m_loader.reset();
+    ++m_epoch;
+    m_ticket = 0;
+    sendRequest();
+    Q_EMIT selectionChanged();
+}
+
+void FileBrowser::previewSettingChanged() {
+    // Off: the second reader goes too, so nothing of this app reads file content behind the user's back.
+    if (!previewEnabled()) dropLoader();
+    refreshPreview(PreviewStart::Now);
+    Q_EMIT selectionChanged();
+}
+
+void FileBrowser::previewOnce() {
+    const core::Entry* e = selectedEntry();
+    if (!m_browser || !e || m_busy || previewHeld()) return;
+    refreshPreview(PreviewStart::Forced);
+    Q_EMIT selectionChanged();
+}
+
+std::shared_ptr<const PreviewContent> FileBrowser::cachedPreview(const PreviewKey& key) {
+    const auto it = std::find_if(m_cache.begin(), m_cache.end(), [&](const CachedPreview& c) { return c.key == key; });
+    if (it == m_cache.end()) return nullptr;
+    std::rotate(m_cache.begin(), it, it + 1);
+    return m_cache.front().content;
+}
+
+void FileBrowser::rememberPreview(const PreviewKey& key, std::shared_ptr<const PreviewContent> content) {
+    std::erase_if(m_cache, [&](const CachedPreview& c) { return c.key == key; });
+    m_cache.push_front(CachedPreview{key, std::move(content)});
+    qsizetype bytes = 0;
+    auto end = m_cache.begin();
+    for (std::size_t n = 0; end != m_cache.end() && n < kCacheEntries; ++end, ++n)
+        if ((bytes += costOf(*end->content)) > kCacheBytes) break;
+    m_cache.erase(end, m_cache.end());
+}
+
+// ---- Selection and navigation -------------------------------------------------------------
 
 void FileBrowser::activate(int row) {
     if (!m_browser || row < 0 || row >= m_entries.rowCount() || m_busy) return;
@@ -399,11 +682,42 @@ void FileBrowser::activate(int row) {
     else select(row);
 }
 
-void FileBrowser::select(int row) {
+void FileBrowser::selectRow(int row, PreviewStart start) {
+    const int before = m_entries.selected();
     m_entries.setSelected(row);
-    updatePreview();
+    const bool moved = m_entries.selected() != before;
+    if (moved) m_hashText = "not computed";
+    // A click on the row that is selected already changes nothing that is shown, except that it
+    // hurries a preview along and tries an unreadable file once more.
+    if (moved || m_previewLoading || m_previewKind == "unreadable") refreshPreview(start);
     Q_EMIT selectionChanged();
-    Q_EMIT changed();
+}
+
+void FileBrowser::select(int row) {
+    if (m_busy) return;
+    selectRow(row, PreviewStart::Now);
+}
+
+void FileBrowser::moveSelection(int delta) {
+    if (!m_browser || m_busy) return;
+    const int row = core::movedIndex(m_entries.selected(), m_entries.rowCount(), delta);
+    if (row >= 0 && row != m_entries.selected()) selectRow(row, PreviewStart::Debounced);
+}
+
+void FileBrowser::selectFirst() {
+    if (!m_browser || m_busy || m_entries.rowCount() == 0 || m_entries.selected() == 0) return;
+    selectRow(0, PreviewStart::Debounced);
+}
+
+void FileBrowser::selectLast() {
+    const int last = m_entries.rowCount() - 1;
+    if (!m_browser || m_busy || last < 0 || m_entries.selected() == last) return;
+    selectRow(last, PreviewStart::Debounced);
+}
+
+void FileBrowser::activateSelected() {
+    const core::Entry* e = selectedEntry();
+    if (e && e->isDir()) enter(qs(e->entry.name));
 }
 
 void FileBrowser::enter(const QString& name) {
@@ -417,14 +731,12 @@ void FileBrowser::enter(const QString& name) {
 
 void FileBrowser::up() {
     if (!m_browser || m_busy) return;
-    m_browser->up();
-    listCurrent();
+    if (const std::string left = m_browser->up(); !left.empty()) listCurrent(left);
 }
 
 void FileBrowser::jumpTo(int crumb) {
     if (!m_browser || m_busy) return;
-    m_browser->jumpTo(static_cast<std::size_t>(std::max(0, crumb)));
-    listCurrent();
+    if (const std::string left = m_browser->jumpTo(static_cast<std::size_t>(std::max(0, crumb))); !left.empty()) listCurrent(left);
 }
 
 void FileBrowser::goTo(const QString& path) {
@@ -443,6 +755,7 @@ void FileBrowser::hash() {
     if (e.stat.type != stein::fs::FileType::File) return;
     core::Browser* browser = &*m_browser;
     auto out = std::make_shared<std::string>();
+    const stein::fs::DirEntry hashed = e.entry;
     setBusy(true);
     const bool started = JobRunner::instance()->start(
         "Hashing " + qs(e.entry.name), "browse",
@@ -458,12 +771,15 @@ void FileBrowser::hash() {
             report.finish(stein::ReportStatus::Success);
             return {};
         },
-        [this, out, i](bool ok, const stein::Error&) {
-            setBusy(false);
-            if (ok && m_entries.selected() == i) {
+        [this, out, hashed](bool ok, const stein::Error&) {
+            // The hash belongs to the entry, not to the row it was on when the job began. Before
+            // setBusy: that may run a reload that waited for this job.
+            const core::Entry* now = selectedEntry();
+            if (ok && now && now->entry.inode == hashed.inode && now->entry.name == hashed.name) {
                 m_hashText = qs(*out);
                 Q_EMIT selectionChanged();
             }
+            setBusy(false);
         });
     if (!started) setBusy(false);
 }
@@ -567,7 +883,8 @@ void FileBrowser::cleanupStaging() {
 
 void FileBrowser::mount() {
     Workspace* w = Workspace::instance();
-    if (!m_browser || !w->tree() || !w->current()) return;
+    // While a reload waits for this object's job, m_path may name another node of a newer tree.
+    if (!m_browser || !w->tree() || !w->current() || m_reopen) return;
     // A mount needs its own reader: the mount thread owns it.
     stein::fs::ReaderOptions o;
     o.volume = ss(m_subvolume);

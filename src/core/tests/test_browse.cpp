@@ -74,12 +74,12 @@ TEST_CASE("the viewer lists, descends, previews, hashes and copies out") {
     CHECK(browser->pathText() == "/" + dir->entry.name);
     CHECK(browser->breadcrumbs().size() == 2);
     CHECK(!browser->enter(file->entry.name));
-    browser->up();
+    CHECK(browser->up() == dir->entry.name);
     CHECK(browser->pathText() == "/");
     REQUIRE(browser->goTo("/" + dir->entry.name + "/.."));
     CHECK(browser->pathText() == "/");
     REQUIRE(browser->goTo(dir->entry.name));
-    browser->jumpTo(0);
+    CHECK(browser->jumpTo(0) == dir->entry.name);
     CHECK(browser->pathText() == "/");
     CHECK(!browser->goTo("/does/not/exist"));
 }
@@ -101,7 +101,8 @@ TEST_CASE("FAT is browsable too and previews classify content") {
     REQUIRE(listing);
     for (const auto& e : listing->entries) {
         if (e.stat.type != fs::FileType::File) continue;
-        auto pv = preview(browser->reader(), e.entry.inode, e.stat, 64);
+        // Every limit at 64 bytes: nothing, picture or not, is read past the head.
+        auto pv = preview(browser->reader(), e.entry.inode, e.stat, PreviewLimits{.head = 64, .image = 64, .svg = 64});
         REQUIRE(pv);
         if (e.stat.size == 0) CHECK(pv->kind == PreviewKind::Empty);
         else {

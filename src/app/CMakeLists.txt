@@ -16,12 +16,17 @@ set(DRSTEIN_QT_SOURCES
   ../qt/workspace.hpp ../qt/workspace.cpp
   ../qt/struct_inspector.hpp ../qt/struct_inspector.cpp
   ../qt/file_browser.hpp ../qt/file_browser.cpp
+  ../qt/preview_decode.hpp ../qt/preview_decode.cpp ../qt/preview_decode_platform.hpp
+  ../qt/preview_surface.hpp ../qt/preview_surface.cpp
   ../qt/mounts_model.hpp ../qt/mounts_model.cpp
   ../qt/image_controller.hpp ../qt/image_controller.cpp
   ../qt/partition_editor.hpp ../qt/partition_editor.cpp
   ../qt/tools_controller.hpp ../qt/tools_controller.cpp
   ../qt/profiles_model.hpp ../qt/profiles_model.cpp
 )
+if(APPLE)
+  list(APPEND DRSTEIN_QT_SOURCES ../qt/preview_decode_mac.cpp)   # ImageIO, the decoder behind Qt's
+endif()
 
 set(DRSTEIN_QML_FILES
   qml/Main.qml
@@ -113,7 +118,8 @@ qt_add_qml_module(dr_stein
 
 target_include_directories(dr_stein PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../qt ${CMAKE_CURRENT_SOURCE_DIR}/platform)
 if(APPLE)
-  target_link_libraries(dr_stein PRIVATE "-framework AppKit")
+  target_link_libraries(dr_stein PRIVATE
+    "-framework AppKit" "-framework ImageIO" "-framework CoreGraphics" "-framework CoreFoundation")
 endif()
 # libstein has a slots() method; Qt's keyword macros would eat it.
 target_compile_definitions(dr_stein PRIVATE QT_NO_KEYWORDS)

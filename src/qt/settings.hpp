@@ -20,6 +20,7 @@ class Settings : public QObject {
     Q_PROPERTY(bool customTitleBar READ customTitleBar WRITE setCustomTitleBar NOTIFY customTitleBarChanged)   // applies at next launch
     Q_PROPERTY(bool interactDuringJobs READ interactDuringJobs WRITE setInteractDuringJobs NOTIFY interactDuringJobsChanged)   // expert: keep the UI live while a job runs
     Q_PROPERTY(bool decimalSizes READ decimalSizes WRITE setDecimalSizes NOTIFY decimalSizesChanged)
+    Q_PROPERTY(bool previewFiles READ previewFiles WRITE setPreviewFiles NOTIFY previewFilesChanged)   // Browse reads a selected file to show it
     Q_PROPERTY(QString profilesDir READ profilesDir WRITE setProfilesDir NOTIFY profilesDirChanged)
     Q_PROPERTY(QStringList recentImages READ recentImages NOTIFY recentImagesChanged)
     Q_PROPERTY(int sidebarWidth READ sidebarWidth WRITE setSidebarWidth NOTIFY sidebarWidthChanged)
@@ -42,6 +43,8 @@ public:
     void setInteractDuringJobs(bool on);
     bool decimalSizes() const;
     void setDecimalSizes(bool on);
+    bool previewFiles() const;
+    void setPreviewFiles(bool on);
     QString profilesDir() const;
     void setProfilesDir(const QString& dir);
     QStringList recentImages() const;
@@ -61,6 +64,7 @@ Q_SIGNALS:
     void customTitleBarChanged();
     void interactDuringJobsChanged();
     void decimalSizesChanged();
+    void previewFilesChanged();
     void profilesDirChanged();
     void recentImagesChanged();
     void sidebarWidthChanged();
@@ -73,6 +77,11 @@ private:
     // DRSTEIN_PALETTE / DRSTEIN_SCHEME seed these at start-up (the elevated relaunch
     // carries the look across); a change in Settings replaces them for this run.
     QString m_palette, m_scheme;
+    // DRSTEIN_PREVIEW=0|1 decides this for the run: a scripted run, or the elevated copy, which
+    // is handed the user's choice that way. Such a run leaves the stored preference as it found
+    // it, so a change then stays in memory.
+    bool m_previewFiles = true;
+    bool m_previewFromEnv = false;
 };
 
 } // namespace drstein::ui

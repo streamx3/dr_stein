@@ -31,7 +31,8 @@ The toolkit decision is Qt 6 Quick/QML with C++ models (libstein decision D17,
  src/core/            drstein_core (static, Qt-free, C++23, doctest-tested).
                       Session objects, services and presentation helpers over
                       libstein. Synchronous; never spawns a thread except the
-                      mount manager (a Mount::run() loop needs one).
+                      mount manager (a Mount::run() loop needs one) and the
+                      preview loader (§2.6: a file read must not hold the UI).
         │  libstein public headers
  libstein/            stein::platform, probe, pt, fs, image, ops, app, mount, ...
 ```
@@ -228,30 +229,176 @@ public:
 };
 ```
 
-### 2.6 Files inside a filesystem (`browse.hpp`)
+### 2.6 Files inside a filesystem (`browse.hpp`, `preview_loader.hpp`)
 
 ```cpp
-struct Entry { fs::DirEntry entry; fs::Stat stat; std::string linkTarget; };
-struct Listing { fs::Inode dir; std::vector<Entry> entries; std::string pathText; };
+struct Entry { fs::DirEntry entry; fs::Stat stat; std::string linkTarget; std::string sizeText, mtimeText, modeText; };
+struct Listing { fs::Inode dir; std::vector<Entry> entries; };   // directories first, then by name (case-insensitive)
+struct Crumb { std::string name; fs::Inode inode; };             // "/" for the root
+
+// What Browser::open browses with. A Reader is not thread-safe: whoever reads on another thread opens one of its own.
+Expected<std::unique_ptr<fs::Reader>> openReader(const probe::Node& root, const NodePath& path, const fs::ReaderOptions& options = {});
 
 class Browser {                    // one open Reader and a current directory
 public:
-    static Expected<Browser> open(const probe::Node& root, const NodePath& path, const fs::ReaderOptions& options);
-    Expected<Listing> list(const fs::Inode& dir);           // sorted: directories first, then by name
-    Expected<fs::Inode> enter(std::string_view name);       // relative to the current dir
-    Expected<fs::Inode> resolve(std::string_view path);
-    std::vector<std::pair<std::string, fs::Inode>> breadcrumbs() const;
+    static Expected<Browser> open(const probe::Node& root, const NodePath& path, const fs::ReaderOptions& options = {});
+    Expected<Listing> list(const fs::Inode& dir);
+    Expected<Listing> listCurrent();
+    Expected<void> enter(std::string_view name);            // a directory inside the current one
+    Expected<void> goTo(std::string_view absolutePath);     // "/etc/ssh"
+    std::string up();                                       // both return the name of the child directory that was left,
+    std::string jumpTo(std::size_t crumbIndex);             // for the list to re-select; "" when nothing changed
+    fs::Inode current() const;
+    const std::vector<Crumb>& breadcrumbs() const;
+    std::string pathText() const;                           // "/etc/ssh"
     bool caseSensitive() const;
     fs::Reader& reader();
 };
 
-enum class PreviewKind { Text, Hex, Image, Empty, TooLarge, Unreadable };
-struct Preview { PreviewKind kind; std::vector<std::byte> bytes; std::string text; std::string note; };
-Expected<Preview> preview(fs::Reader&, const fs::Inode& file, const fs::Stat& st, ByteCount limit = 256 * KiB);
-Expected<std::string> sha256Hex(fs::Reader&, const fs::Inode& file, Progress&);
-// copyTree with the UI's defaults; destination directory is where the drop landed.
-Expected<fs::CopyTreeStats> copyOut(fs::Reader&, const fs::Inode& source, const std::filesystem::path& destination, Progress&);
+// The row a keyboard step lands on: -1 for an empty list; from no selection a step down takes
+// the first row and a step up the last; otherwise the step is clamped to the list.
+int movedIndex(int current, int count, int delta);
+
+Expected<std::string> sha256Hex(fs::Reader&, const fs::Inode& file, const fs::Stat& st, Progress&);
+// Copies `source` (a file, a directory tree or a symlink) to `destinationDir / name`.
+Expected<fs::CopyTreeStats> copyOut(fs::Reader&, const fs::Inode& source, const std::string& name, const std::filesystem::path& destinationDir, Progress&);
 ```
+
+The preview half, copied from the header (hence the `stein::` that the other
+blocks drop):
+
+```cpp
+enum class PreviewKind { Empty, Text, Hex, Image, Unreadable };
+struct Preview {
+    PreviewKind kind = PreviewKind::Empty;
+    std::vector<std::byte> bytes;  // what was read: a whole image, otherwise the head
+    std::string text;              // for Text, and the source of an SVG image; at most PreviewLimits::text
+    std::string note;              // "first 256 KiB of 1.2 GiB"
+    std::string textNote;          // "first 64 KiB of 300 KiB" when `text` is not the whole file; else empty
+    bool truncated = false;
+    std::string imageFormat;       // "png", "jpeg", "svg", ...: set whenever the content was recognised
+};
+
+struct PreviewLimits {
+    stein::ByteCount head = 256 * stein::KiB;   // read first and sniffed; all a text or hex preview shows
+    stein::ByteCount image = 64 * stein::MiB;   // a recognised image up to this size is read whole
+    stein::ByteCount svg = 1 * stein::MiB;      // an SVG up to this size is read whole and vetted
+    stein::ByteCount chunk = 1 * stein::MiB;    // read size past the head; cancellation is checked per chunk
+    stein::ByteCount text = 64 * stein::KiB;    // the most of a text that is shown: more stalls a text view on every file
+};
+
+// What the file is shown as. A recognised image within limits.image comes back whole (Image);
+// above it the head is shown as Hex with a note. An SVG is an Image only when it is within
+// limits.svg and svgSafeToRender(); otherwise it stays Text. Text shows at most limits.text
+// bytes, and the note says so when that is not the whole file. A read failure is a Preview of
+// kind Unreadable with the message as its note; the only error returned is Cancelled, when
+// `cancelled` turns true before a read.
+stein::Expected<Preview> preview(stein::fs::Reader& reader, const stein::fs::Inode& file, const stein::fs::Stat& st, const PreviewLimits& limits = {},
+                                 const std::atomic<bool>* cancelled = nullptr);
+
+// The image format the first bytes of a file announce, as a lowercase id: png jpeg gif bmp webp
+// tiff ico cur icns heic avif jp2 j2k psd pnm xpm; "" when none. Formats without a magic number
+// (TGA) and text formats (SVG) are not found here.
+std::string sniffImageFormat(std::span<const std::byte> head);
+// "jpeg" -> "JPEG", "jp2" -> "JPEG 2000"; an unknown id comes back in upper case.
+std::string imageFormatLabel(std::string_view id);
+// Whether an SVG can be handed to a renderer that resolves references: false when it declares
+// entities, carries scripts, event attributes, <image> or <foreignObject> (under any namespace
+// prefix: the renderer goes by the local name), imports a style
+// sheet, moves its base (xml:base), or points anywhere but at one of its own elements (href,
+// xlink:href, url()). A hostile file on the browsed disk must not make the renderer open files
+// of the host. Conservative: harmless files are refused too when they merely look like any of that.
+bool svgSafeToRender(std::string_view svg);
+```
+
+What the comments leave out:
+
+- Directories, links, special files and empty files are `Empty` with a note
+  ("a directory", "empty file") before the reader is touched; the GUI thread
+  relies on that to describe them without a read.
+- A short magic number is not trusted alone: BMP, ICO/CUR, TIFF, PSD and
+  PNM need a plausible header too ("BM" plus garbage is not a bitmap), and
+  the generic HEIF brands are told apart by their compatible brands.
+- The note of an image above the limit names the format ("PNG image of
+  120 MiB: above the 64 MiB preview limit"). A picture that ends early is
+  still an `Image` of what could be read, with a note saying so.
+- Text is the first 64 KiB of the head with a cut UTF-8 sequence trimmed,
+  three bytes at most; the note then reads "first 64 KiB of 600 KiB". The
+  whole head (256 KiB) is still read and sniffed. An SVG's source is cut the
+  same way, and `textNote` says so for when it is shown as text after all.
+- An SVG is text whose first element is `<svg` (a byte order mark, an XML
+  declaration, comments and a DOCTYPE may precede it). QtSvg opens the local
+  files an SVG names, so `svgSafeToRender()` is the only gate for what an
+  SVG may touch (the cost of rendering it is checked in the Qt layer, §10).
+  Elements are matched by their local name: QtSvg ignores the prefix, so
+  `<s:image href="#x/a.png">` with `s` bound to the SVG namespace drew the
+  file `#x/a.png` relative to the working directory until 2026-11-14. Illustrator
+  files with entities and Inkscape files with an embedded `<image>` are
+  refused with the rest and shown as text.
+
+`preview_loader.hpp` takes the read off the caller's thread:
+
+```cpp
+struct PreviewResult {
+    std::uint64_t ticket = 0;
+    stein::Expected<Preview> preview;   // a read failure is a Preview of kind Unreadable; an error is anything else that went wrong
+    std::shared_ptr<void> decoded;      // what the transform made of the preview; empty without one or on an error
+};
+
+class PreviewLoader {
+public:
+    // Runs on the worker with no lock held, and may still be running after the loader is gone:
+    // it must not touch the loader's owner. It, and what it captured, is destroyed with the
+    // worker, on whichever thread lets go last.
+    using Transform = std::function<std::shared_ptr<void>(const Preview&)>;
+    // Runs on the worker under the loader's lock: it hands the result over (posts it to the
+    // owner's thread) and must not call back into the loader. Destroyed by ~PreviewLoader.
+    using Deliver = std::function<void(PreviewResult)>;
+
+    PreviewLoader(std::unique_ptr<stein::fs::Reader> reader, PreviewLimits limits, Transform transform, Deliver deliver);
+    // Never waits for a read or a transform: the worker is told to stop and left to finish the
+    // call it is in; it keeps the reader alive until then. Nothing is delivered once this returned.
+    ~PreviewLoader();
+
+    // Supersedes every earlier request: one in progress is cancelled at its next chunk, one
+    // waiting is dropped, and neither is delivered. Returns the request's ticket: increasing, never 0.
+    std::uint64_t request(const stein::fs::Inode& file, const stein::fs::Stat& st);
+    // Supersedes every earlier request without making a new one.
+    void cancel();
+};
+```
+
+One detached worker thread owns a reader and serves only the latest request,
+so stepping through a directory never queues up reads. Its guarantees:
+
+1. At most one request is in progress. A newer `request()` or `cancel()`
+   raises the cancel flag of that one, so a large read stops at its next
+   chunk, and drops the one that waits.
+2. `Deliver` is called only for the ticket that is still the latest at that
+   moment, at most once per ticket, never for a cancelled one and never
+   after `~PreviewLoader` has returned. One mutex covers `request()`,
+   `cancel()`, the destructor and the delivery itself.
+3. The destructor sets stop, wakes the worker and returns. The worker
+   co-owns the state, reader included, through a `shared_ptr` and exits
+   after the read or transform it is in. It is never joined: a read on
+   failing media may take arbitrarily long.
+4. A failed read is delivered (a `Preview` of kind `Unreadable`). A null
+   reader, and an exception out of the reader or the transform, are
+   delivered as errors.
+
+Why a second reader: a `fs::Reader` is not thread-safe (FAT, exFAT, APFS,
+btrfs and others fill caches lazily), while block devices are safe for
+concurrent `readAt` and a reader co-owns its devices, so it can outlive the
+probe tree. The worker therefore reads through a reader of its own, opened
+with `openReader()` for the same node and options, and never touches the
+`Browser`'s. Two threads decompressing at once needed one fix in libstein:
+the lazily built static tables of `inflate.cpp` and `bzip2.cpp` are now a
+function-local static and a compile-time constant.
+
+What a superseded request cannot stop is the call the worker is in: one
+`read()` call (a chunk at most) or a transform (a decode). The next request
+waits behind it. What the app builds on this (decoders, timing, the
+keyboard) is in §10.
 
 ### 2.7 Imaging requests (`imaging.hpp`)
 
@@ -374,14 +521,15 @@ libstein header is included from QML-facing code except for enums.
 | `TopologyModel` | QAbstractListModel | `topologyRows()` | rows filtered by `Settings.expertMode`; `segments` as a QVariantList of maps |
 | `NodeDetailsObject` | QObject | `nodeDetails()` | rows, notes, flags, usedFraction |
 | `StructInspector` | QObject | `structuresFor`, `StructEditor` | `structs`, `currentStruct`, `HexRowsModel` (16 bytes per row: hex, ascii, per-byte state), `FieldsModel`, `selectField`, `selectByte`, `editField`, `revert`, `write()`, `saveHeader(url)`, `restoreFromFile(url)` |
-| `FileBrowser` | QObject | `Browser`, `preview`, `copyOut` | `DirTreeModel` (lazy QAbstractItemModel for the left pane), `EntriesModel` (current directory), `breadcrumbs`, `preview` (text/hex/image), `hash()` (job), `copyOut(entry, dirUrl)` (job), `mount()` |
+| `FileBrowser` | QObject | `Browser`, `PreviewLoader`, `copyOut` | `DirTreeModel` (lazy QAbstractItemModel for the left pane), `EntriesModel` (current directory), `breadcrumbs`; `select(row)` for a click, `moveSelection(delta)` / `selectFirst()` / `selectLast()` / `activateSelected()` for the keyboard, `up()` and `jumpTo(crumb)` re-select the directory that was left; the preview as `previewKind` ("none", "off", "loading", "empty", "text", "hex", "image", "unreadable"), `previewLoading`, `previewText`, `previewHex`, `previewImage` (a QImage), `previewNote`, `previewEnabled`, `previewOnce()` (§10); `hash()` (job), `copyOut(entry, dirUrl)` (job), `mount()` |
+| `PreviewSurface` | QQuickPaintedItem | a `QImage` | `image`; painted centred and fitted, at most one image pixel per screen pixel, so a decoded preview needs no URL or image provider |
 | `JobRunner` | singleton QObject | `ProgressRelay`, a worker `QThread` | `running`, `title`, `phase`, `fraction`, `doneText/totalText/rateText/etaText`, `messages` (log), `report` (ReportModel), `cancel()`; exactly one job at a time, enforced here |
 | `ImageController` | QObject | `imaging.hpp` | form properties bound two-way from QML, `canStart`, `validationMessage`, `start()`, `dryRun()`, `restore()`, `verify()`, `keys` (KeySlotsModel) |
 | `PartitionEditor` | QObject | `EditSession` | `pending` (model), `previewRows` (model), `baseSegments`/`previewSegments`, `changedRanges`, `add/update/delete/repair/newTable/wipe`, `undoLast`, `clear`, `apply()` (job); the Apply confirmation dialog is QML but the destructive flag comes from the stack |
 | `ToolsController` | QObject | `media.hpp` | `scanCells` (QVariantList), results, `surfaceScan()`, `capacityTest(confirmText, quick, keepPattern)` |
 | `ProfilesModel` | QAbstractListModel | `ProfileStore`, `profileCard` | cards; `backup/restore/verify(index, dryRun)` as jobs, `newFromCurrentDisk(imageUrl, name)`, `remove(index)` |
 | `MountsModel` | QAbstractListModel | `MountManager` | mount point, what, `unmount(index)` |
-| `Settings` | singleton QObject | QSettings | `palette` ("teal"/"blurple"), `colorScheme` ("dark"/"light"/"system"), `expertMode`, `profilesDir`, `recentImages`, `decimalSizes` |
+| `Settings` | singleton QObject | QSettings | `palette` ("teal"/"blurple"), `colorScheme` ("dark"/"light"/"system"), `expertMode`, `profilesDir`, `recentImages`, `decimalSizes`, `previewFiles` (default on; `DRSTEIN_PREVIEW=0\|1` decides it for one run, and such a run never writes it) |
 
 Threading: the GUI thread owns every facade. `JobRunner` moves one
 `std::function<Expected<void>(Progress&, Report&)>` to its worker thread,
@@ -389,7 +537,10 @@ hands the relay's snapshots back through a queued signal, and delivers the
 typed result through a completion callback on the GUI thread. While a job
 runs, the facades refuse to start another and the UI disables the buttons
 (the library's entities are not thread-safe; one job per process is the
-rule, as in the CLI).
+rule, as in the CLI). `FileBrowser`'s preview worker is a thread beside the
+job's: it reads and decodes through a reader of its own (§2.6) and posts
+what it made to the GUI thread with a queued call; no new preview is asked
+for while a job has the UI locked (§10).
 
 Errors: every facade emits `error(title, message, hint, severity)` built by
 `core::present(Error)`; the shell shows a toast and, for `Permission`, the
@@ -427,6 +578,11 @@ mapping for GPT and FAT headers, field edits round-tripping through the
 overlay, the Add Partition defaults, preview diff rows, error presentation,
 size formatting, profile cards against a file target, image form
 validation. `ctest` runs them; CI mirrors libstein's three platforms.
+`test_preview.cpp` covers the preview half of §2.6: the sniffing table with
+its near misses, the limits, cancellation between chunks, safe and unsafe
+SVGs on files served from memory (`mount::makeSingleFileReader`), and the
+loader's guarantees with a reader that blocks until the test lets it go.
+It synchronises with condition variables; timeouts are failure bounds only.
 
 The Qt layer is exercised by running the app against image files (no
 privileges) and, later, by `qmltestrunner` smoke tests of the models.
@@ -507,3 +663,136 @@ disks as targets; a partition image lists the partitions of the source that is
 open in the sidebar, each marked same size / larger / too small, and is written
 through a `SliceDevice` of that partition so the table and the other partitions
 are untouched. Mixing the two is refused with a sentence, not a checkbox.
+
+## 10. Browse: previews and the keyboard (2026-11-14)
+
+Selecting an entry shows its name, details and times at once and reads no
+file content on the GUI thread. The content comes from a
+`core::PreviewLoader` (§2.6) that `FileBrowser` creates on first need, with a
+second reader from `core::openReader()` for the same node and
+`ReaderOptions` as its `Browser`. That reader is opened on the GUI thread,
+as the `Browser`'s is; when it cannot be opened, files show as "unreadable"
+with the reason.
+
+- **When it asks.** A click asks at once. Keyboard movement asks after an
+  80 ms pause, so a held arrow key skims the list without a read per row.
+  No request starts while a job has the UI locked (`Workspace.uiLocked`: the
+  job may be writing under the reader). The card then says "waiting for the
+  running job" and the selection is picked up when the lock ends.
+- **What crosses threads.** The loader's transform (`renderPreview`, a free
+  function that captures nothing of the `FileBrowser`) runs
+  `decodePreview()` and builds the strings on the worker. The file's bytes
+  end there: the picture, the note, the text and a 4 KiB hex head are posted
+  to the GUI thread with a queued call, and a result whose loader or ticket
+  is no longer the current one is dropped.
+- **While it loads.** The previous content stays up for 150 ms, dimmed
+  (`previewLoading` is true), then the kind turns "loading". The 12 most
+  recent previews, 96 MiB at most, are kept by inode, size and mtime, so a
+  step back is instant; failed reads are not kept.
+- **When the loader goes.** With its reader: whenever the `Browser` is
+  reopened (a reload, another subvolume), when previews are switched off,
+  and with the `FileBrowser`. A reload asked for while one of the view's own
+  jobs (hash, copy out) reads through the `Browser` waits for that job.
+- **A stuck worker.** A request that has waited 10 s behind one that was
+  given up gets a new loader, three times per browser at most. The old
+  worker finishes its call on its own and delivers nothing.
+- **Off.** `Settings.previewFiles` is the "auto" check on the preview card
+  and "Preview files in Browse" in Settings; `DRSTEIN_PREVIEW=0|1` decides
+  it for one run, and the elevated relaunch passes it on. Switching it off
+  closes the loader and its reader. A selected file then shows kind "off"
+  and is read only by `previewOnce()`, the card's "Preview this file".
+
+`decodePreview()` (`src/qt/preview_decode.hpp`) turns an `Image` preview into
+a `QImage` that fits 2048 × 2048, upright and never enlarged (an SVG smaller
+than 512 px is drawn at 512). It tries, in order:
+
+1. **Qt**: `QImageReader` over the bytes, the format decided from the
+   content. JPEG and SVG decode straight to the fitted size. Other formats
+   decode at full size and are scaled afterwards, and only when the full
+   size stays under 256 MiB, `QImageReader`'s own limit: fewer than
+   8192 × 8192 pixels. An SVG is rendered only when core passed the id
+   "svg": that id says the text went through `svgSafeToRender()`. Before
+   QtSvg sees it, `QXmlStreamReader` counts what it would draw: each element
+   once, plus what every `<use>` and every `url(#id)` in an attribute (mask,
+   clip path, marker, pattern, filter; not a gradient) draws again,
+   memoised per element. It is shown as text, with the reason as its note,
+   when that comes to more than 100 000 elements, when references loop, or
+   when nesting and references together go more than 128 levels deep:
+   QtSvg draws both by recursion, and a chain of 500 `<use>` overflowed the
+   worker's 512 KiB stack on macOS (300 did not). Ten levels of ten `<use>`
+   (2.4 KiB) used to keep the worker busy for minutes; it is now turned down
+   in well under a millisecond.
+2. **The platform decoder**, for what Qt has no decoder for, cannot read or
+   finds too large: ImageIO on macOS (`preview_decode_mac.cpp`), which makes
+   the thumbnail without holding the whole picture. There is none on Linux
+   and Windows.
+3. **Neither**: no picture, and a sentence saying why ("HEIC image: this
+   build has no decoder for it", "PNG image, 12000 × 9000: too large to
+   decode", "not a readable BMP image"). The card shows the hex head with
+   that sentence as its note; for an SVG, its source (its first 64 KiB).
+
+A raster picture above 16384 × 16384 pixels is refused on both paths,
+because a decode cannot be interrupted.
+
+| Decoder | Pictures it shows |
+|---|---|
+| Qt alone, on every platform | PNG, JPEG, GIF (first frame), BMP, ICO and CUR (the largest entry), PBM/PGM/PPM, XPM, SVG |
+| ImageIO adds, on macOS | TIFF, WebP, HEIC, AVIF, JPEG 2000, ICNS; PNG, BMP and the like from 8192 × 8192 pixels up |
+| Linux and Windows | what the installed Qt image plugins read: Qt's Image Formats add-on brings TIFF, WebP and ICNS; HEIC has no decoder there, and neither have AVIF and JPEG 2000 in Qt's own builds; a picture other than a JPEG from 8192 × 8192 pixels up is "too large to decode" |
+
+**What the card shows.** `PreviewSurface` lays a picture with an alpha
+channel on a checkerboard of 8 px squares in two neutral steps of the theme
+(`checkerColor`, `checkerAltColor`), so black drawn on nothing shows in the
+dark scheme too. Text is at most 64 KiB (a larger `TextEdit` stalled the UI
+about 200 ms on each keyboard pause in a debug build). The selected row is
+tinted with the accent and carries a 3 px accent bar while the list has the
+keyboard; while it does not, both turn grey. The line under the panes says
+what is read when: "a file when it is selected" with previews on, "a file
+only when you ask" with them off.
+
+**Keys.** The entries list holds the keyboard. It takes focus when a row or
+the list's empty space is clicked, when Browse becomes the current view and
+when the layout is enabled again after a job, but never from an open dialog.
+The `ListView`'s own key navigation is off, because the selection lives in
+the C++ model; its `Keys.onPressed` calls `keyPressed(key, modifiers,
+autoRepeat)` on the view's root item, which a `DRSTEIN_SCRIPT` can call too
+(`browseView.keyPressed(...)`, `moveSelection(delta)`, `pageRows()`).
+
+| Key | Does |
+|---|---|
+| Up, Down | one entry up or down |
+| PageUp, PageDown | a page: the fully visible rows less one |
+| Home, End | the first, the last entry |
+| Return, Enter, Right | enters the selected directory; nothing on a file |
+| Backspace, Left | the parent directory, with the directory that was left selected |
+
+The selected row is kept in view (`positionViewAtIndex(row,
+ListView.Contain)`). Keys with Ctrl, Alt or Meta are not taken. The four
+directory keys ignore auto-repeat, so a held key does not walk through
+directories. Nothing moves while a job has the view disabled or another
+view is shown.
+
+Not covered:
+
+- **Formats without a decoder on the platform** show as hex with the note
+  of step 3: on Linux and Windows that is every format outside the table's
+  first row, unless a Qt plugin for it is installed. TGA has no magic number
+  and is hex everywhere. PSD and bare JPEG 2000 codestreams are recognised
+  but were not tried. Camera raw files carry TIFF's magic and go to whatever
+  reads TIFF.
+- **Audio and video** are not previewed; they show as hex.
+- **Animation and orientation.** A GIF shows its first frame. A PNG's eXIf
+  orientation is ignored; JPEG, TIFF and HEIC are turned upright.
+- **Interrupting a decode.** A file selected right after a very large
+  picture waits behind it (about 1.2 s after a 12000 × 9000 PNG in a debug
+  build). An SVG within the element and depth limits can still be slow by
+  sheer drawing: 20 000 thin paths in 1 MiB take about 4 s in a release
+  build, filters and blurs cost by the area. The 10 s rule above is the only
+  way past those. Markers are counted once, not once per vertex.
+- **Tests.** The core half is tested (§6). `src/qt` and the QML have no
+  test in the repository: the decoders, `FileBrowser` and the view were
+  checked with scratch programs and scripted runs on macOS. The key handler
+  was driven through `browseView.keyPressed()` and by synthetic key events;
+  no test presses a real key, so the way from the keyboard to the handler
+  is left to a check by hand. None of this has been built or run on Linux
+  or Windows.

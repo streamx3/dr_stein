@@ -7,6 +7,7 @@ add_library(drstein_core STATIC
   src/topology.cpp
   src/structs.cpp
   src/browse.cpp
+  src/preview_loader.cpp
   src/imaging.cpp
   src/partition_edit.cpp
   src/media.cpp
@@ -33,6 +34,7 @@ if(DRSTEIN_BUILD_TESTS)
     tests/test_imaging.cpp
     tests/test_profiles.cpp
     tests/test_browse.cpp
+    tests/test_preview.cpp
     tests/test_fixture_export.cpp
     tests/test_luks.cpp
   )

@@ -60,7 +60,7 @@ as a flood.
 | Identity strip (title, mono path, identity line, tags: table, health, read-only) | `IdentityStrip` bound to `Workspace.current` |
 | Topology: 34 px proportional bar, tree table (1fr 150 90 96), 320 px details card | `SegmentBar`, `ListView` with `GridLayout` rows over `TopologyModel`, `DetailsCard` |
 | Hex: segmented struct picker, hex pane (76 / 16 cells / 136) and parsed pane | `StructInspector`: `StSegmented`, `HexPane` (`ListView` of 16-byte rows with a `Row` of 16 cells), `FieldsPane` |
-| Browse: 220 / 1fr / 280 panes | `TreeView` over `DirTreeModel`, `ListView` over `EntriesModel`, `PreviewCard` |
+| Browse: 220 / 1fr / 280 panes | `TreeView` over `DirTreeModel`; `ListView` over `EntriesModel`, which holds the keyboard (arrows, PageUp/PageDown, Home/End, Enter and Backspace; the view's own key navigation is off because the selection lives in the model); the preview card, an `StCard` in `BrowseView.qml`: `PreviewSurface` paints a decoded picture, a `TextEdit` shows text or hex, and the "auto" `StCheck` in its header is `Settings.previewFiles`, with "Preview this file" for one file when it is off |
 | Image: form (2 columns) + progress/report card | `ImageForm`, `JobCard` (shared with every long job) |
 | Profiles: 3-column cards + dashed "New profile" | `GridLayout` of `ProfileCard`, `Flow` fallback below 1100 px |
 | Tools: scan card with a 64-column cell grid, destructive card, confirm dialog | `ScanGrid` (`Grid` of `Rectangle`s from `scanCells`), `ConfirmErase` dialog with the typed kernel name |
@@ -200,4 +200,8 @@ See `03-round-2-plan.md` for the item list. Rules that came out of it:
   selection); until 2026-10-09 it only switched to the Browse view.
 - **Environment is a default, not a lock.** `DRSTEIN_PALETTE` / `DRSTEIN_SCHEME`
   seed the settings at start (the elevated relaunch uses them) and the Settings
-  dialog can change them afterwards.
+  dialog can change them afterwards. `DRSTEIN_PREVIEW=0|1` (2026-11-14) does
+  the same for Browse's preview switch, with one difference: a run started
+  with it changes the switch in memory only and leaves the stored setting
+  alone. The elevated relaunch passes it on; that hand-over is written, not
+  yet run.

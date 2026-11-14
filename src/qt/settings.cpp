@@ -15,6 +15,9 @@ Settings::Settings(QObject* parent) : QObject(parent), m_settings("dr_stein", "d
     m_scheme = QString::fromUtf8(qgetenv("DRSTEIN_SCHEME"));
     if (m_palette.isEmpty()) m_palette = m_settings.value("ui/palette", "teal").toString();
     if (m_scheme.isEmpty()) m_scheme = m_settings.value("ui/colorScheme", "dark").toString();
+    const QByteArray preview = qgetenv("DRSTEIN_PREVIEW");
+    m_previewFromEnv = !preview.isEmpty();
+    m_previewFiles = m_previewFromEnv ? preview != "0" : m_settings.value("ui/previewFiles", true).toBool();
 }
 
 Settings* Settings::instance() {
@@ -73,6 +76,14 @@ void Settings::setDecimalSizes(bool on) {
     if (on == decimalSizes()) return;
     m_settings.setValue("ui/decimalSizes", on);
     Q_EMIT decimalSizesChanged();
+}
+
+bool Settings::previewFiles() const { return m_previewFiles; }
+void Settings::setPreviewFiles(bool on) {
+    if (on == m_previewFiles) return;
+    m_previewFiles = on;
+    if (!m_previewFromEnv) m_settings.setValue("ui/previewFiles", on);
+    Q_EMIT previewFilesChanged();
 }
 
 QString Settings::profilesDir() const {
