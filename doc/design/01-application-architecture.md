@@ -245,6 +245,8 @@ public:
     Expected<Listing> list(const fs::Inode& dir);
     Expected<Listing> listCurrent();
     Expected<void> enter(std::string_view name);            // a directory inside the current one
+    Expected<void> enter(std::string_view name, const fs::Inode& listed);   // as listed: two entries of one name told apart
+    std::vector<std::string> pathTo(std::string_view name) const;          // names from the root, for another reader
     Expected<void> goTo(std::string_view absolutePath);     // "/etc/ssh"
     std::string up();                                       // both return the name of the child directory that was left,
     std::string jumpTo(std::size_t crumbIndex);             // for the list to re-select; "" when nothing changed
@@ -316,20 +318,28 @@ What the comments leave out:
 - Directories, links, special files and empty files are `Empty` with a note
   ("a directory", "empty file") before the reader is touched; the GUI thread
   relies on that to describe them without a read.
-- A short magic number is not trusted alone: BMP, ICO/CUR, TIFF, PSD and
-  PNM need a plausible header too ("BM" plus garbage is not a bitmap), and
+- A short magic number is not trusted alone: BMP, ICO/CUR, ICNS, TIFF, PSD
+  and PNM need a plausible header too ("BM" plus garbage is not a bitmap,
+  a note that starts with "icns" is not an icon file), and
   the generic HEIF brands are told apart by their compatible brands.
 - The note of an image above the limit names the format ("PNG image of
   120 MiB: above the 64 MiB preview limit"). A picture that ends early is
   still an `Image` of what could be read, with a note saying so.
 - Text is the first 64 KiB of the head with a cut UTF-8 sequence trimmed,
-  three bytes at most; the note then reads "first 64 KiB of 600 KiB". The
+  three bytes at most (the head is judged as text with that cut trimmed too:
+  UTF-8 text with one control character used to show as hex above 256 KiB); the note then reads "first 64 KiB of 600 KiB". The
   whole head (256 KiB) is still read and sniffed. An SVG's source is cut the
   same way, and `textNote` says so for when it is shown as text after all.
 - An SVG is text whose first element is `<svg` (a byte order mark, an XML
   declaration, comments and a DOCTYPE may precede it). QtSvg opens the local
   files an SVG names, so `svgSafeToRender()` is the only gate for what an
   SVG may touch (the cost of rendering it is checked in the Qt layer, §10).
+  Since 2026-11-14 it also refuses `<?xml-stylesheet` (QtSvg opened
+  `href="#name.css"` as a file), reads `url (` with white space before the
+  parenthesis as a reference, and refuses an XML declaration that names an
+  encoding other than UTF-8, ASCII or Latin-1: the parser decodes by the
+  declaration while the gate reads bytes, which a Qt built with ICU could
+  be made to read differently.
   Elements are matched by their local name: QtSvg ignores the prefix, so
   `<s:image href="#x/a.png">` with `s` bound to the SVG namespace drew the
   file `#x/a.png` relative to the working directory until 2026-11-14. Illustrator
@@ -362,9 +372,13 @@ public:
 
     // Supersedes every earlier request: one in progress is cancelled at its next chunk, one
     // waiting is dropped, and neither is delivered. Returns the request's ticket: increasing, never 0.
-    std::uint64_t request(const stein::fs::Inode& file, const stein::fs::Stat& st);
+    std::uint64_t request(PreviewTarget target);   // { path from the root (Browser::pathTo), listed Stat }
     // Supersedes every earlier request without making a new one.
     void cancel();
+    PreviewActivity activity() const;              // { ticket being served or 0, Idle | Reading | Transforming }
+
+    static std::size_t workersAlive();             // of every loader, those whose loader is gone included
+    static bool waitForWorkers(std::chrono::milliseconds patience);
 };
 ```
 
@@ -385,6 +399,20 @@ so stepping through a directory never queues up reads. Its guarantees:
 4. A failed read is delivered (a `Preview` of kind `Unreadable`). A null
    reader, and an exception out of the reader or the transform, are
    delivered as errors.
+5. A request names its file by path, not by inode: the worker looks each
+   name up in its own reader, then checks that what it found has the
+   listed type, size and mtime; otherwise, or when the path leads nowhere,
+   the preview is `Unreadable` with the reason. Two readers of one
+   filesystem need not number its files alike: btrfs numbers subvolumes in
+   the order a reader meets them, so every file inside a subvolume was
+   "unreadable" to the worker until the multi-reviewer pass of 2026-11-14.
+   On damaged media with two entries of one name, the second is refused
+   rather than shown with the first one's content.
+6. `activity()` tells the owner whether the worker is reading or
+   transforming, and for which ticket, so a stall can be told from a slow
+   decode (§10). `workersAlive()` counts every worker not yet returned;
+   `waitForWorkers()` lets the process wait for them before its static
+   destructors run (a decode inside Qt crashed on quit otherwise).
 
 Why a second reader: a `fs::Reader` is not thread-safe (FAT, exFAT, APFS,
 btrfs and others fill caches lazily), while block devices are safe for
@@ -573,7 +601,7 @@ libstein header is included from QML-facing code except for enums.
 | `TopologyModel` | QAbstractListModel | `topologyRows()` | rows filtered by `Settings.expertMode`; `segments` as a QVariantList of maps |
 | `NodeDetailsObject` | QObject | `nodeDetails()` | rows, notes, flags, usedFraction |
 | `StructInspector` | QObject | `structuresFor`, `StructEditor` | `structs`, `currentStruct`, `HexRowsModel` (16 bytes per row: hex, ascii, per-byte state), `FieldsModel`, `selectField`, `selectByte`, `editField`, `revert`, `write()`, `saveHeader(url)`, `restoreFromFile(url)` |
-| `FileBrowser` | QObject | `Browser`, `PreviewLoader`, `ListingCache`, `copyOut` | `DirTreeModel` (lazy QAbstractItemModel for the list layout's tree), `EntriesModel` (current directory; it shares its listing, does not copy it, and has `get(row)`), `columns` (a `ColumnsModel`, empty in the list layout), `breadcrumbs`; `select(row)` for a click, `moveSelection(delta)` / `selectFirst()` / `selectLast()` / `activateSelected()` for the keyboard, `up()` and `jumpTo(crumb)` re-select the directory that was left; in the column layout `columnClicked(column, row)`, `columnActivated(column, row)` (a double-click), `stageColumnForDrag(column, row)` and `enterSelectedAndSelectFirst()` (§11); the preview as `previewKind` ("none", "off", "loading", "empty", "text", "hex", "image", "unreadable"), `previewLoading`, `previewText`, `previewHex`, `previewImage` (a QImage), `previewNote`, `previewEnabled`, `previewOnce()` (§10); `hash()` (job), `copyOut(entry, dirUrl)` (job), `stageForDrag(rows)`, `mount()` |
+| `FileBrowser` | QObject | `Browser`, `PreviewLoader`, `ListingCache`, `copyOut` | `DirTreeModel` (lazy QAbstractItemModel for the list layout's tree), `EntriesModel` (current directory; it shares its listing, does not copy it, and has `get(row)`), `columns` (a `ColumnsModel`, empty in the list layout), `breadcrumbs`; `select(row)` for a click, `moveSelection(delta)` / `selectFirst()` / `selectLast()` / `activateSelected()` for the keyboard, `up()` and `jumpTo(crumb)` re-select the directory that was left; in the column layout `columnClicked(column, row)`, `columnActivated(column, row)` (a double-click), `stageColumnForDrag(column, row)` and `enterSelectedAndSelectFirst()` (§11); the preview as `previewKind` ("none", "off", "loading", "empty", "text", "hex", "image", "unreadable"), `previewLoading`, `previewText`, `previewHex`, `previewImage` (a QImage), `previewNote`, `previewEnabled`, `previewOnce()` (§10); `hash()` (job), `copyOut(entry, dirUrl)` (job), `prepareCopy(row)` + `copyPrepared(dirUrl)` (Copy out…: the entry is fixed when the folder dialog opens, and nothing is copied, with a toast, if the disk was read again meanwhile), `stageForDrag(rows)`, `mount()` |
 | `ColumnsModel` | QAbstractListModel | `planColumns`, `keptColumns`, `rowOfName` | one row per column, left to right; roles: `title` (the volume's title for the root), `current`, `peek`, `crumb`, `selectedRow` (the selection in the current column, the row on the path in an ancestor, -1 in the peek), `entries` (an `EntriesModel` of the column's own), `entryCount`, `error` (why the directory could not be listed); `count`, `get(row)`. A step replaces only the columns whose directory changed (§11) |
 | `PreviewSurface` | QQuickPaintedItem | a `QImage` | `image`; painted centred and fitted, at most one image pixel per screen pixel, so a decoded preview needs no URL or image provider |
 | `JobRunner` | singleton QObject | `ProgressRelay`, a worker `QThread` | `running`, `title`, `phase`, `fraction`, `doneText/totalText/rateText/etaText`, `messages` (log), `report` (ReportModel), `cancel()`; exactly one job at a time, enforced here |
@@ -742,8 +770,9 @@ with the reason.
 - **When it asks.** A click asks at once. Keyboard movement asks after an
   80 ms pause, so a held arrow key skims the list without a read per row.
   No request starts while a job has the UI locked (`Workspace.uiLocked`: the
-  job may be writing under the reader). The card then says "waiting for the
-  running job" and the selection is picked up when the lock ends.
+  job may be writing under the reader), and one in flight when the lock
+  comes is cancelled. The card then says "waiting for the running job" and
+  the selection is asked for again when the lock ends.
 - **What crosses threads.** The loader's transform (`renderPreview`, a free
   function that captures nothing of the `FileBrowser`) runs
   `decodePreview()` and builds the strings on the worker. The file's bytes
@@ -756,11 +785,22 @@ with the reason.
   step back is instant; failed reads are not kept.
 - **When the loader goes.** With its reader: whenever the `Browser` is
   reopened (a reload, another subvolume), when previews are switched off,
+  when the selection moves on after "Preview this file" with previews off,
   and with the `FileBrowser`. A reload asked for while one of the view's own
   jobs (hash, copy out) reads through the `Browser` waits for that job.
-- **A stuck worker.** A request that has waited 10 s behind one that was
-  given up gets a new loader, three times per browser at most. The old
-  worker finishes its call on its own and delivers nothing.
+- **A stuck worker.** A request that has waited 10 s gets a new loader only
+  when `activity()` says the worker is still in the *transform* of a file
+  given up for it, and fewer than three workers are alive in the process.
+  The old worker finishes its decode on its own and delivers nothing. A
+  worker stuck in a *read* is waited out: every real block device
+  serialises its reads, so a new reader, opened on the GUI thread, would
+  have frozen the UI behind the same read. A slow decode of the file asked
+  for is not started over.
+- **On quit.** `main()` destroys the QML objects (each loader tells its
+  worker to stop), waits up to 1 s for the workers, and if one is still in
+  a decode ends the process with `_Exit` instead of running static
+  destructors under it: quitting during an SVG render crashed 2 runs in 4
+  before.
 - **Off.** `Settings.previewFiles` is the "auto" check on the preview card
   and "Preview files in Browse" in Settings; `DRSTEIN_PREVIEW=0|1` decides
   it for one run, and the elevated relaunch passes it on. Switching it off
@@ -771,8 +811,15 @@ with the reason.
 a `QImage` that fits 2048 × 2048, upright and never enlarged (an SVG smaller
 than 512 px is drawn at 512). It tries, in order:
 
+0. **Core first** refuses, by its headers, a JPEG whose decoder would hold
+   every DCT coefficient of the picture: a progressive one, or one in
+   several scans, above 256 MiB of coefficients ("progressive JPEG image,
+   16384 × 16384: too large to decode"; a 171-byte file made libjpeg hold
+   2 GiB), and one of more than 100 scans at any size (each scan walks all
+   coefficients again: 10 000 scans kept the worker busy for minutes). It
+   is shown as hex with that note.
 1. **Qt**: `QImageReader` over the bytes, the format decided from the
-   content. JPEG and SVG decode straight to the fitted size. Other formats
+   content. Baseline JPEG and SVG decode straight to the fitted size. Other formats
    decode at full size and are scaled afterwards, and only when the full
    size stays under 256 MiB, `QImageReader`'s own limit: fewer than
    8192 × 8192 pixels. An SVG is rendered only when core passed the id
@@ -786,11 +833,26 @@ than 512 px is drawn at 512). It tries, in order:
    QtSvg draws both by recursion, and a chain of 500 `<use>` overflowed the
    worker's 512 KiB stack on macOS (300 did not). Ten levels of ten `<use>`
    (2.4 KiB) used to keep the worker busy for minutes; it is now turned down
-   in well under a millisecond.
+   in well under a millisecond. Since the review of 2026-11-14 the count also
+   follows `url (#id)` with white space before the parenthesis (QtSvg does),
+   counts a reference to an id defined twice at every definition (decoys at
+   the end hid a 600-link chain that crashed the worker), follows the
+   references in `<style>` rules to the elements a plain selector (`rect`,
+   `.a`, `#b`, `rect.a`, `*`) matches and takes any other selector to match
+   all, refuses a style sheet whose rules times elements exceed 10 million,
+   adds 2000 for each mask or filter applied (each is a layer the size of
+   the picture: 125 nested masks took 4 GiB) and draws a marker once per
+   point of its path. An SVG is drawn at 1024 px at most: the pane is 560
+   points wide, and fills, masks and blurs cost by the area.
 2. **The platform decoder**, for what Qt has no decoder for, cannot read or
-   finds too large: ImageIO on macOS (`preview_decode_mac.cpp`), which makes
-   the thumbnail without holding the whole picture. There is none on Linux
-   and Windows.
+   finds too large: ImageIO on macOS (`preview_decode_mac.cpp`). It makes
+   the thumbnail without holding the whole picture only for baseline JPEG,
+   PNG that is not interlaced and HEIF/AVIF (a 16384 × 16384 one stays near
+   140 MiB). Anything else, and any floating-point picture, is refused when
+   the whole of it at its own depth would take more than 512 MiB: an
+   interlaced PNG of 16384 × 16384 took 1 GiB, a float TIFF 8 GiB. That
+   turns down some large TIFFs ImageIO would have streamed. There is none
+   on Linux and Windows.
 3. **Neither**: no picture, and a sentence saying why ("HEIC image: this
    build has no decoder for it", "PNG image, 12000 × 9000: too large to
    decode", "not a readable BMP image"). The card shows the hex head with
@@ -853,10 +915,13 @@ Not covered:
   orientation is ignored; JPEG, TIFF and HEIC are turned upright.
 - **Interrupting a decode.** A file selected right after a very large
   picture waits behind it (about 1.2 s after a 12000 × 9000 PNG in a debug
-  build). An SVG within the element and depth limits can still be slow by
-  sheer drawing: 20 000 thin paths in 1 MiB take about 4 s in a release
-  build, filters and blurs cost by the area. The 10 s rule above is the only
-  way past those. Markers are counted once, not once per vertex.
+  build). An SVG within the limits can still be slow by sheer drawing, and
+  no count bounds that: one self-crossing path of 90 000 segments with an
+  even-odd fill took 251 s, a dashed path of 60 000 segments over 300 s,
+  12 000 gradient-filled rectangles about 7 s at 1024 px. The 10 s rule
+  above lets the next preview past such a render; the render itself runs
+  on until it ends or the app quits. Only rendering in a separate process
+  with a time limit would bound it.
 - **Tests.** The core half is tested (§6). `src/qt` and the QML have no
   test in the repository: the decoders, `FileBrowser` and the view were
   checked with scratch programs and scripted runs on macOS. The key handler
@@ -864,6 +929,9 @@ Not covered:
   synthetic key events; no test presses a real key, so the way from the
   keyboard to the handler is left to a check by hand. The SVG count
   (`svgCostRefusal`) has no test of its own; the owner deferred those tests.
+  The review of 2026-11-14 checked it against the reviewers' crafted files
+  with a scratch program (`doc/notes/2026-11-14-browse-preview-status.md`
+  §13).
   None of this has been built or run on Linux or Windows.
 
 ## 11. Browse: the column view and the panes (2026-11-14)

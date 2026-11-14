@@ -26,7 +26,9 @@
 
 #include <QDebug>
 
+#include <chrono>
 #include <cstdlib>
+#include <memory>
 
 int main(int argc, char* argv[]) {
     QGuiApplication::setApplicationName("Dr Stein");
@@ -39,7 +41,9 @@ int main(int argc, char* argv[]) {
     // Basic has no look of its own: every control is drawn by our components from Theme.
     QQuickStyle::setStyle("Basic");
 
-    QQmlApplicationEngine engine;
+    // On the heap: it goes before the preview workers are waited for (the end of main).
+    auto engineOwner = std::make_unique<QQmlApplicationEngine>();
+    QQmlApplicationEngine& engine = *engineOwner;
     engine.addImageProvider("codicon", new drstein::ui::CodiconProvider);   // Linux caption buttons
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("DrStein", "Main");
@@ -88,5 +92,11 @@ int main(int argc, char* argv[]) {
             QCoreApplication::quit();
         });
     }
-    return app.exec();
+    const int code = app.exec();
+    // The QML objects go first: each FileBrowser tells its preview worker to stop. A worker may
+    // still be in a decode, inside Qt, which the static destructors run by a return from main
+    // take down under it (a crash on quit). It gets a moment; then the process ends without them.
+    engineOwner.reset();
+    if (!drstein::core::PreviewLoader::waitForWorkers(std::chrono::seconds(1))) std::_Exit(code);
+    return code;
 }

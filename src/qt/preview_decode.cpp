@@ -21,7 +21,7 @@ namespace drstein::ui {
 
 #ifndef Q_OS_DARWIN
 namespace detail {
-PlatformImage platformDecode(std::span<const std::byte>, int, qint64) { return {}; }
+PlatformImage platformDecode(std::span<const std::byte>, int, qint64, qint64) { return {}; }
 } // namespace detail
 #endif
 
@@ -34,11 +34,17 @@ constexpr qint64 kQtFullDecodeBytes = 256LL * 1024 * 1024;
 // A decode cannot be interrupted once it runs, so a picture is turned down by its header when
 // it would take too long: 16384 x 16384, which is 1 GiB at four bytes a pixel.
 constexpr qint64 kMaxSourcePixels = 16384LL * 16384;
+// What a platform decoder that holds the whole picture may hold of it: a 16384 x 16384 float
+// TIFF took 8 GiB in ImageIO.
+constexpr qint64 kMaxWholeDecodeBytes = 512LL * 1024 * 1024;
 
 // An SVG has no pixels of its own, and an icon drawn at its nominal 24 pixels is a speck: a
 // small one is drawn up to this size. No further, because rendering costs by the area (a blur
 // by more than that) and cannot be interrupted either.
 constexpr int kSmallVectorSide = 512;
+// ... and a large one only to this size: the preview pane is at most 560 points wide, and
+// fills, masks and blurs cost by the area drawn.
+constexpr int kLargeVectorSide = 1024;
 
 // A rendering cannot be interrupted, and references multiply: ten <use> of ten <use> of ... draw
 // ten to the depth. What an SVG expands to is counted before QtSvg sees it.
@@ -48,10 +54,21 @@ constexpr qint64 kMaxSvgElements = 100'000;
 constexpr int kMaxSvgDepth = 128;
 constexpr qint64 kMaxSvgCountingSteps = 4'000'000;   // the count itself stays cheap on any file
 
-// The ids an attribute value refers to with url(#id): a style attribute can hold several.
+// What a style sheet may cost to apply: QtSvg matches every rule against every element.
+constexpr qint64 kMaxSvgStyleMatches = 10'000'000;
+// A mask or a filter is drawn into a layer of its own the size of the picture, then composed:
+// one application costs as much as this many plain elements (a blur over the whole picture
+// took about a second at 2048 px).
+constexpr qint64 kSvgLayerCost = 2'000;
+
+// The ids an attribute value or a style sheet refers to with url(#id); QtSvg reads "url (" as
+// "url(" too. A style attribute can hold several.
 void addUrlTargets(QStringView value, std::vector<QString>& out) {
-    for (qsizetype at = value.indexOf(u"url("); at >= 0; at = value.indexOf(u"url(", at + 4)) {
-        QStringView rest = value.mid(at + 4).trimmed();
+    for (qsizetype at = value.indexOf(u"url", 0, Qt::CaseInsensitive); at >= 0; at = value.indexOf(u"url", at + 3, Qt::CaseInsensitive)) {
+        qsizetype i = at + 3;
+        while (i < value.size() && value[i].isSpace()) ++i;
+        if (i >= value.size() || value[i] != u'(') continue;
+        QStringView rest = value.mid(i + 1).trimmed();
         if (rest.startsWith(u'"') || rest.startsWith(u'\'')) rest = rest.mid(1).trimmed();
         if (!rest.startsWith(u'#')) continue;
         rest = rest.mid(1);
@@ -61,27 +78,101 @@ void addUrlTargets(QStringView value, std::vector<QString>& out) {
     }
 }
 
+// The points of a path or a polyline, where markers are drawn: at most one per number in it.
+qint64 vertexCount(QStringView data) {
+    qint64 numbers = 0;
+    bool inNumber = false;
+    for (const QChar c : data) {
+        const bool digit = c.isDigit();
+        if (digit && !inNumber) ++numbers;
+        inNumber = digit || (inNumber && c == u'.');
+    }
+    return std::max<qint64>(1, numbers);
+}
+
+// One rule of a style sheet as far as references go: its selectors and the ids it refers to.
+struct StyleRule {
+    std::vector<QString> selectors;
+    std::vector<QString> targets;
+};
+
+std::vector<StyleRule> styleRules(QStringView sheet, qint64& ruleCount) {
+    std::vector<StyleRule> rules;
+    ruleCount = 0;
+    qsizetype at = 0;
+    while (at < sheet.size()) {
+        const qsizetype open = sheet.indexOf(u'{', at);
+        if (open < 0) break;
+        qsizetype close = sheet.indexOf(u'}', open + 1);
+        if (close < 0) close = sheet.size();
+        ++ruleCount;
+        StyleRule rule;
+        addUrlTargets(sheet.mid(open + 1, close - open - 1), rule.targets);
+        if (!rule.targets.empty()) {
+            for (QStringView selector : sheet.mid(at, open - at).split(u','))
+                rule.selectors.push_back(selector.trimmed().toString());
+            rules.push_back(std::move(rule));
+        }
+        at = close + 1;
+    }
+    return rules;
+}
+
+struct Seen {
+    QString name, id;
+    QStringList classes;
+};
+
+// Whether a selector may match an element. Plain ones ("rect", ".a", "#b", "rect.a", "*") are
+// decided; anything else is taken to match, which can only overcount.
+bool mayMatch(const QString& selector, const Seen& e) {
+    if (selector.isEmpty()) return false;
+    if (selector == u"*") return true;
+    auto plain = [](QStringView word) {
+        if (word.isEmpty()) return false;
+        for (const QChar c : word)
+            if (!(c.isLetterOrNumber() || c == u'-' || c == u'_')) return false;
+        return true;
+    };
+    if (selector.startsWith(u'#') && plain(QStringView(selector).mid(1))) return QStringView(selector).mid(1) == e.id;
+    const qsizetype dot = selector.indexOf(u'.');
+    const QStringView tag = dot < 0 ? QStringView(selector) : QStringView(selector).first(dot);
+    const QStringView cls = dot < 0 ? QStringView() : QStringView(selector).mid(dot + 1);
+    if ((!tag.isEmpty() && !plain(tag)) || (dot >= 0 && !plain(cls))) return true;
+    if (!tag.isEmpty() && tag != e.name) return false;
+    return dot < 0 || e.classes.contains(cls.toString());
+}
+
 // Why an SVG is not to be rendered for what it would cost, in plain words; empty when it may be.
 // Elements are counted with the ones each reference draws again: <use>, and url(#id) in any
-// attribute (masks, clip paths, markers, patterns, filters) except to a gradient, which draws
-// nothing of its own. Depth is nesting and references together, as the renderer recurses.
+// attribute or style sheet rule (masks, clip paths, markers, patterns, filters) except to a
+// gradient, which draws nothing of its own. A mask or a filter adds the cost of a layer; a
+// marker is drawn at every point of its path. An id defined twice is counted at each
+// definition: QtSvg may take either. Depth is nesting and references together, as the
+// renderer recurses.
 QString svgCostRefusal(std::span<const std::byte> bytes) {
+    enum class Kind : unsigned char { Plain, Gradient, Layer, Marker };
     struct Element {
         qsizetype end = 0;        // one past its last descendant, in document order
         qsizetype firstRef = 0;   // its references in `refs`, which keeps document order too
         int level = 0;            // 1 for a top-level element
         int deepest = 0;          // the deepest level in its subtree
-        bool gradient = false;
+        Kind kind = Kind::Plain;
+        qint64 vertices = 1;
     };
     struct Ref {
         QString id;
-        int level = 0;            // of the element that refers
-        qsizetype target = -1;
+        qsizetype owner = 0;      // the element that refers
+        std::vector<qsizetype> targets;
     };
     std::vector<Element> elements;
-    std::vector<Ref> refs;
+    std::vector<Seen> seen;
+    std::vector<std::vector<QString>> named;   // per element, the ids its attributes refer to
     std::vector<qsizetype> open;
-    QHash<QString, qsizetype> ids;
+    std::vector<bool> openIsStyle;
+    QHash<QString, std::vector<qsizetype>> ids;
+    QString styleSheet;
+    int inStyle = 0;
     auto at = [&](qsizetype i) -> Element& { return elements[static_cast<std::size_t>(i)]; };
 
     QXmlStreamReader xml(QByteArray::fromRawData(reinterpret_cast<const char*>(bytes.data()), static_cast<qsizetype>(bytes.size())));
@@ -89,10 +180,13 @@ QString svgCostRefusal(std::span<const std::byte> bytes) {
         Element& done = at(open.back());
         done.end = static_cast<qsizetype>(elements.size());
         open.pop_back();
+        if (openIsStyle.back()) --inStyle;
+        openIsStyle.pop_back();
         if (!open.empty()) at(open.back()).deepest = std::max(at(open.back()).deepest, done.deepest);
     };
     while (!xml.atEnd() && !xml.hasError()) {
         const auto token = xml.readNext();
+        if (token == QXmlStreamReader::Characters && inStyle) styleSheet += xml.text();
         if (token == QXmlStreamReader::EndElement && !open.empty()) closeElement();
         if (token != QXmlStreamReader::StartElement) continue;
         if (static_cast<qint64>(elements.size()) >= kMaxSvgElements) return QStringLiteral("SVG image of more than %L1 elements: shown as text").arg(kMaxSvgElements);
@@ -100,19 +194,59 @@ QString svgCostRefusal(std::span<const std::byte> bytes) {
         if (level > kMaxSvgDepth) return QStringLiteral("SVG image nested more than %1 levels deep: shown as text").arg(kMaxSvgDepth);
         const qsizetype index = static_cast<qsizetype>(elements.size());
         const QStringView name = xml.name();
-        elements.push_back({index + 1, static_cast<qsizetype>(refs.size()), level, level, name == u"linearGradient" || name == u"radialGradient"});
-        open.push_back(index);
-        std::vector<QString> named;
+        Element e{index + 1, 0, level, level, Kind::Plain, 1};
+        if (name == u"linearGradient" || name == u"radialGradient") e.kind = Kind::Gradient;
+        else if (name == u"mask" || name == u"filter") e.kind = Kind::Layer;
+        else if (name == u"marker") e.kind = Kind::Marker;
+        Seen s{name.toString(), {}, {}};
+        std::vector<QString> refers;
         for (const QXmlStreamAttribute& a : xml.attributes()) {
-            if (a.name() == u"id") ids.insert(a.value().toString(), index);
-            else if (a.name() == u"href" && name == u"use" && a.value().startsWith(u'#')) named.push_back(a.value().mid(1).toString());
-            else addUrlTargets(a.value(), named);
+            if (a.name() == u"id") {
+                s.id = a.value().toString();
+                ids[s.id].push_back(index);
+            } else if (a.name() == u"class") {
+                s.classes = a.value().toString().split(QChar(u' '), Qt::SkipEmptyParts);
+            } else if (a.name() == u"href" && name == u"use" && a.value().startsWith(u'#')) {
+                refers.push_back(a.value().mid(1).toString());
+            } else {
+                if (a.name() == u"d" || a.name() == u"points") e.vertices = vertexCount(a.value());
+                addUrlTargets(a.value(), refers);
+            }
         }
-        for (QString& id : named) refs.push_back({std::move(id), level, -1});
+        elements.push_back(e);
+        seen.push_back(std::move(s));
+        named.push_back(std::move(refers));
+        open.push_back(index);
+        openIsStyle.push_back(name == u"style");
+        if (name == u"style") ++inStyle;
     }
     // QtSvg renders nothing of a document it cannot parse; what was read so far is counted all the same.
     while (!open.empty()) closeElement();
-    for (Ref& r : refs) r.target = ids.value(r.id, -1);
+
+    // The style sheet's references go to the elements its rules may match; never to one inside
+    // the very element referred to, which would only make a loop of what QtSvg does not draw.
+    qint64 ruleCount = 0;
+    const std::vector<StyleRule> rules = styleRules(styleSheet, ruleCount);
+    if (ruleCount * static_cast<qint64>(elements.size()) > kMaxSvgStyleMatches) return QStringLiteral("SVG image whose style sheet would take too long to apply: shown as text");
+    for (const StyleRule& rule : rules)
+        for (std::size_t e = 0; e < elements.size(); ++e) {
+            if (!std::any_of(rule.selectors.begin(), rule.selectors.end(), [&](const QString& sel) { return mayMatch(sel, seen[e]); })) continue;
+            for (const QString& id : rule.targets) {
+                const auto definitions = ids.value(id);
+                const bool inside = std::any_of(definitions.begin(), definitions.end(), [&](qsizetype t) { return t <= static_cast<qsizetype>(e) && static_cast<qsizetype>(e) < at(t).end; });
+                if (!inside) named[e].push_back(id);
+            }
+        }
+
+    std::vector<Ref> refs;
+    for (std::size_t e = 0; e < elements.size(); ++e) {
+        elements[e].firstRef = static_cast<qsizetype>(refs.size());
+        for (QString& id : named[e]) {
+            Ref r{std::move(id), static_cast<qsizetype>(e), {}};
+            r.targets = ids.value(r.id);
+            refs.push_back(std::move(r));
+        }
+    }
     auto refsBefore = [&](qsizetype element) { return element < static_cast<qsizetype>(elements.size()) ? at(element).firstRef : static_cast<qsizetype>(refs.size()); };
 
     enum class Mark : unsigned char { Unseen, Open, Done };
@@ -140,15 +274,22 @@ QString svgCostRefusal(std::span<const std::byte> bytes) {
         const Element& el = at(element);
         Expansion x{el.end - element, el.deepest - el.level + 1};
         for (qsizetype r = el.firstRef, last = refsBefore(el.end); r < last && x.elements <= kMaxSvgElements && x.depth <= kMaxSvgDepth && refusal.isEmpty(); ++r) {
-            if (++steps > kMaxSvgCountingSteps) {
-                refusal = QStringLiteral("SVG image whose references are too many to follow: shown as text");
-                break;
-            }
             const Ref& ref = refs[static_cast<std::size_t>(r)];
-            if (ref.target < 0 || at(ref.target).gradient) continue;
-            const Expansion named = expand(ref.target, calls + 1);
-            x.elements += named.elements;
-            x.depth = std::max(x.depth, ref.level - el.level + 1 + named.depth);
+            const Element& owner = at(ref.owner);
+            for (const qsizetype target : ref.targets) {
+                if (++steps > kMaxSvgCountingSteps) {
+                    refusal = QStringLiteral("SVG image whose references are too many to follow: shown as text");
+                    break;
+                }
+                const Element& t = at(target);
+                if (t.kind == Kind::Gradient) continue;
+                const Expansion drawn = expand(target, calls + 1);
+                const qint64 times = t.kind == Kind::Marker ? owner.vertices : 1;
+                x.elements += std::min(drawn.elements, kMaxSvgElements + 1) * std::min(times, kMaxSvgElements + 1) + (t.kind == Kind::Layer ? kSvgLayerCost : 0);
+                x.elements = std::min(x.elements, kMaxSvgElements + 1);
+                x.depth = std::max(x.depth, owner.level - el.level + 1 + drawn.depth);
+                if (!refusal.isEmpty()) break;
+            }
         }
         mark[e] = Mark::Done;
         memo[e] = {std::min(x.elements, kMaxSvgElements + 1), std::min(x.depth, kMaxSvgDepth + 1)};
@@ -174,7 +315,7 @@ QSize fitted(QSize size, int box) {
 }
 
 QSize vectorSize(QSize nominal, int box) {
-    const int side = std::min(box, std::max({nominal.width(), nominal.height(), kSmallVectorSide}));
+    const int side = std::min({box, kLargeVectorSide, std::max({nominal.width(), nominal.height(), kSmallVectorSide})});
     return nominal.scaled(side, side, Qt::KeepAspectRatio).expandedTo(QSize(1, 1));
 }
 
@@ -244,10 +385,14 @@ QtImage decodeWithQt(std::span<const std::byte> bytes, bool vettedSvg, int box) 
 
     QImage image;
     if (!reader.read(&image) || image.isNull()) return out;
-    if (!known) out.sourceSize = image.size();
-    shrinkInto(image, box);
+    // What was decoded at full size is the picture's size, whatever its header claimed: an icon
+    // directory or a GIF screen can name a size the picture inside does not have.
+    if (!known || !(svg || format == "jpeg")) out.sourceSize = image.size();
+    // In place first, then scaled: scaling a picture not premultiplied makes a premultiplied
+    // copy of the whole of it.
     const QImage::Format wanted = image.hasAlphaChannel() ? QImage::Format_ARGB32_Premultiplied : QImage::Format_RGB32;
     if (image.format() != wanted) image.convertTo(wanted);
+    shrinkInto(image, box);
     out.image = std::move(image);
     return out;
 }
@@ -281,7 +426,7 @@ DecodedPreview decodePreview(std::span<const std::byte> bytes, const QString& sn
     }
 
     detail::PlatformImage native;
-    if (!vettedSvg && !bytes.empty()) native = detail::platformDecode(bytes, box, kMaxSourcePixels);
+    if (!vettedSvg && !bytes.empty()) native = detail::platformDecode(bytes, box, kMaxSourcePixels, kMaxWholeDecodeBytes);
     if (!native.format.isEmpty()) out.format = native.format;
     if (native.sourceSize.isValid()) out.sourceSize = native.sourceSize;
     if (!native.image.isNull()) {

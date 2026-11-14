@@ -82,6 +82,14 @@ Expected<void> Browser::enter(std::string_view name) {
     return {};
 }
 
+Expected<void> Browser::enter(std::string_view name, const fs::Inode& listed) {
+    auto st = m_reader->stat(listed);
+    if (!st) return fail(st.error());
+    if (st->type != fs::FileType::Directory) return fail(ErrorCategory::InvalidArgument, std::string(name) + " is not a directory");
+    m_crumbs.push_back({std::string(name), listed});
+    return {};
+}
+
 Expected<void> Browser::goTo(std::string_view absolutePath) {
     auto parts = split(absolutePath, '/');
     std::vector<Crumb> crumbs{m_crumbs.front()};
@@ -126,6 +134,14 @@ std::string Browser::pathText() const {
     return s;
 }
 
+std::vector<std::string> Browser::pathTo(std::string_view name) const {
+    std::vector<std::string> path;
+    path.reserve(m_crumbs.size());
+    for (std::size_t i = 1; i < m_crumbs.size(); ++i) path.push_back(m_crumbs[i].name);
+    path.emplace_back(name);
+    return path;
+}
+
 int movedIndex(int current, int count, int delta) {
     if (count <= 0) return -1;
     if (current < 0) return delta > 0 ? 0 : delta < 0 ? count - 1 : -1;
@@ -145,6 +161,7 @@ struct Head {
     std::size_t size() const { return b.size(); }
     unsigned at(std::size_t i) const { return i < b.size() ? std::to_integer<unsigned>(b[i]) : 0u; }
     unsigned le16(std::size_t i) const { return at(i) | at(i + 1) << 8; }
+    unsigned be16(std::size_t i) const { return at(i) << 8 | at(i + 1); }
     std::uint32_t le32(std::size_t i) const { return le16(i) | static_cast<std::uint32_t>(le16(i + 2)) << 16; }
     std::uint32_t be32(std::size_t i) const { return static_cast<std::uint32_t>(at(i)) << 24 | at(i + 1) << 16 | at(i + 2) << 8 | at(i + 3); }
     bool has(std::size_t offset, std::string_view magic) const {
@@ -186,6 +203,108 @@ std::string sniffIcon(const Head& h) {
     if (h.at(9) != 0 || h.le32(14) == 0 || h.le32(18) < 6 + 16 * count) return "";
     if (type == 1 && (h.le16(10) > 1 || h.le16(12) > 32)) return "";
     return type == 1 ? "ico" : "cur";
+}
+
+// "icns" opens notes about icons as well: the file's length follows, under 512 MiB (any four
+// letters read as more), then entries of a four-character type and a length within the file.
+bool plausibleIcns(const Head& h) {
+    if (!h.has(0, "icns")) return false;
+    const std::uint32_t total = h.be32(4);
+    if (total < 8 || total >= 0x2000'0000) return false;
+    if (total == 8) return true;
+    if (h.size() < 16) return false;
+    for (std::size_t i = 8; i < 12; ++i) {
+        const unsigned c = h.at(i);
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ')) return false;
+    }
+    const std::uint32_t first = h.be32(12);
+    return first >= 8 && first <= total - 8;
+}
+
+// What a JPEG's markers say about decoding it: the frame, and how many scans follow.
+struct JpegLayout {
+    std::uint64_t coefficientBytes = 0;   // what a decoder that keeps every DCT coefficient holds
+    std::uint32_t width = 0, height = 0;
+    unsigned scans = 0;
+    bool progressive = false;
+    bool frame = false;
+};
+
+JpegLayout jpegLayout(std::span<const std::byte> bytes) {
+    JpegLayout out;
+    const Head h{bytes};
+    const std::size_t n = h.size();
+    if (!h.has(0, "\xFF\xD8")) return out;
+    std::size_t i = 2;
+    while (i + 1 < n) {
+        if (h.at(i) != 0xFF || h.at(i + 1) == 0xFF) {   // junk between segments, or fill bytes
+            ++i;
+            continue;
+        }
+        const unsigned marker = h.at(i + 1);
+        i += 2;
+        if (marker == 0xD9) break;                                       // end of image
+        if (marker == 0x00 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) continue;   // no length
+        if (i + 2 > n) break;
+        const unsigned length = h.be16(i);
+        if (length < 2) break;
+        const std::size_t body = i + 2;
+        i += length;
+        const bool sof = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
+        if (sof && !out.frame && length >= 8) {
+            out.frame = true;
+            out.progressive = marker == 0xC2 || marker == 0xC6 || marker == 0xCA || marker == 0xCE;
+            out.height = h.be16(body + 1);
+            out.width = h.be16(body + 3);
+            const unsigned components = h.at(body + 5);
+            unsigned hMax = 1, vMax = 1;
+            for (unsigned c = 0; c < components; ++c) {
+                hMax = std::max(hMax, h.at(body + 7 + 3 * c) >> 4);
+                vMax = std::max(vMax, h.at(body + 7 + 3 * c) & 0x0F);
+            }
+            // As libjpeg sizes its whole-image coefficient buffer: blocks of 64 two-byte
+            // coefficients, rounded up to the component's sampling factors.
+            for (unsigned c = 0; c < components; ++c) {
+                const unsigned hs = std::max(1u, h.at(body + 7 + 3 * c) >> 4), vs = std::max(1u, h.at(body + 7 + 3 * c) & 0x0F);
+                auto blocks = [](std::uint64_t pixels, unsigned factor, unsigned max) {
+                    const std::uint64_t b = (pixels * factor + 8ull * max - 1) / (8ull * max);
+                    return (b + factor - 1) / factor * factor;
+                };
+                out.coefficientBytes += blocks(out.width, hs, hMax) * blocks(out.height, vs, vMax) * 128;
+            }
+        }
+        if (marker != 0xDA) continue;
+        ++out.scans;
+        // The entropy-coded data runs to the next marker: an FF that is neither stuffed nor a restart.
+        while (i + 1 < n) {
+            const auto* ff = static_cast<const std::byte*>(std::memchr(bytes.data() + i, 0xFF, n - i - 1));
+            if (!ff) {
+                i = n;
+                break;
+            }
+            i = static_cast<std::size_t>(ff - bytes.data());
+            const unsigned next = h.at(i + 1);
+            if (next != 0x00 && !(next >= 0xD0 && next <= 0xD7)) break;
+            i += 2;
+        }
+    }
+    return out;
+}
+
+// A decode cannot be interrupted, and a progressive JPEG, or one in several scans, is held whole
+// as coefficients until its last scan whatever size it is drawn at; each scan walks them all.
+constexpr std::uint64_t kMaxJpegCoefficientBytes = 256 * MiB;
+constexpr unsigned kMaxJpegScans = 100;
+
+// Why a picture is not to be decoded, from its headers; "" when it may be.
+std::string decodeRefusal(std::span<const std::byte> bytes, std::string_view format) {
+    if (format != "jpeg") return "";
+    const JpegLayout jpeg = jpegLayout(bytes);
+    if (!jpeg.frame || (!jpeg.progressive && jpeg.scans <= 1)) return "";
+    if (jpeg.scans > kMaxJpegScans) return "JPEG image in " + std::to_string(jpeg.scans) + " scans: too many to decode";
+    if (jpeg.coefficientBytes > kMaxJpegCoefficientBytes)
+        return "progressive JPEG image, " + std::to_string(jpeg.width) + " × " + std::to_string(jpeg.height) + ": too large to decode";
+    return "";
 }
 
 // ISO base media files (HEIF, AVIF, but MP4 and QuickTime too) say what they are in the brands
@@ -283,7 +402,11 @@ bool looksLikeText(std::span<const std::byte> b) {
         if (c < 32 && c != '\n' && c != '\r' && c != '\t' && c != '\f' && c != 0x1b) ++control;
     }
     if (control * 100 > b.size()) return false;
-    return isValidUtf8(asText(b)) || control == 0;
+    // A head can end inside a character: what is cut off there is no reason to call it binary.
+    std::string_view t = asText(b);
+    for (std::size_t cut = 0; cut <= 3 && cut < t.size(); ++cut)
+        if (isValidUtf8(t.substr(0, t.size() - cut))) return true;
+    return control == 0;
 }
 
 bool isCancelled(const std::atomic<bool>* cancelled) { return cancelled && cancelled->load(std::memory_order_relaxed); }
@@ -327,6 +450,28 @@ void setText(Preview& p, std::string_view available, ByteCount size, ByteCount l
     p.textNote = considered < size ? "first " + sizeBinary(considered) + " of " + sizeBinary(size) : "";
 }
 
+// The encoding an XML declaration names, as written in `lower` (the text in lower case); "" when
+// there is no declaration or it names none.
+std::string declaredEncoding(std::string_view lower) {
+    if (lower.starts_with("\xEF\xBB\xBF")) lower.remove_prefix(3);
+    if (!lower.starts_with("<?xml") || lower.size() < 6 || !isSpace(static_cast<unsigned char>(lower[5]))) return "";
+    lower = lower.substr(0, lower.find("?>"));
+    const auto key = lower.find("encoding");
+    if (key == std::string_view::npos) return "";
+    std::size_t i = key + 8;
+    auto skip = [&] {
+        while (i < lower.size() && isSpace(static_cast<unsigned char>(lower[i]))) ++i;
+    };
+    skip();
+    if (i >= lower.size() || lower[i] != '=') return "";
+    ++i;
+    skip();
+    if (i >= lower.size() || (lower[i] != '"' && lower[i] != '\'')) return "";
+    const char quote = lower[i++];
+    const auto end = lower.find(quote, i);
+    return std::string(lower.substr(i, end == std::string_view::npos ? std::string_view::npos : end - i));
+}
+
 } // namespace
 
 std::string sniffImageFormat(std::span<const std::byte> head) {
@@ -336,7 +481,7 @@ std::string sniffImageFormat(std::span<const std::byte> head) {
     if (h.has(0, "GIF87a") || h.has(0, "GIF89a")) return "gif";
     if (h.has(0, "RIFF") && h.has(8, "WEBP")) return "webp";
     if ((h.has(0, "II*\0"sv) && h.le32(4) >= 8) || (h.has(0, "MM\0*"sv) && h.be32(4) >= 8)) return "tiff";
-    if (h.has(0, "icns") && h.be32(4) >= 8) return "icns";
+    if (plausibleIcns(h)) return "icns";
     if (h.has(0, "8BPS") && (h.has(4, "\0\x01"sv) || h.has(4, "\0\x02"sv))) return "psd";
     if (h.has(0, "\0\0\0\x0CjP  \r\n\x87\n"sv)) return "jp2";
     if (h.has(0, "\xFF\x4F\xFF\x51")) return "j2k";
@@ -359,8 +504,15 @@ std::string imageFormatLabel(std::string_view id) {
 
 bool svgSafeToRender(std::string_view svg) {
     const std::string s = toLower(svg);
-    for (std::string_view banned : {"<!entity", "@import", "xml:base"})
+    // A linked style sheet is opened as a file, whatever its name starts with.
+    for (std::string_view banned : {"<!entity", "@import", "xml:base", "<?xml-stylesheet"})
         if (s.find(banned) != std::string::npos) return false;
+    // The parser reads the text in the encoding its declaration names; everything here reads
+    // bytes. Only where those agree on every character that matters, ASCII.
+    if (const std::string encoding = declaredEncoding(s); !encoding.empty()) {
+        static constexpr std::string_view readable[] = {"utf-8", "utf8", "us-ascii", "ascii", "iso-8859-1", "iso8859-1", "latin1", "latin-1"};
+        if (std::find(std::begin(readable), std::end(readable), encoding) == std::end(readable)) return false;
+    }
 
     auto at = [&](std::size_t i) { return i < s.size() ? static_cast<unsigned char>(s[i]) : 0u; };
     auto inName = [](unsigned c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.' || c == ':' || c >= 0x80; };
@@ -385,8 +537,12 @@ bool svgSafeToRender(std::string_view svg) {
         while (isSpace(at(i))) ++i;
         if (at(i) == '=' && !pointsInside(i + 1)) return false;
     }
-    for (auto pos = s.find("url("); pos != std::string::npos; pos = s.find("url(", pos + 4))
-        if (!pointsInside(pos + 4)) return false;
+    // QtSvg reads "url (" as "url(".
+    for (auto pos = s.find("url"); pos != std::string::npos; pos = s.find("url", pos + 3)) {
+        std::size_t i = pos + 3;
+        while (isSpace(at(i))) ++i;
+        if (at(i) == '(' && !pointsInside(i + 1)) return false;
+    }
 
     // Event attributes: a name that starts with "on".
     for (auto pos = s.find("on"); pos != std::string::npos; pos = s.find("on", pos + 2)) {
@@ -437,6 +593,13 @@ Expected<Preview> preview(fs::Reader& reader, const fs::Inode& file, const fs::S
         if (auto rest = readOn(reader, file, p.bytes, st.size, limits.chunk, cancelled); !rest) {
             if (rest.error().category() == ErrorCategory::Cancelled) return fail(rest.error());
             return unreadable(rest.error());
+        }
+        if (std::string why = decodeRefusal(p.bytes, p.imageFormat); !why.empty()) {
+            p.kind = PreviewKind::Hex;
+            p.bytes.resize(std::min(p.bytes.size(), static_cast<std::size_t>(want)));
+            p.truncated = p.bytes.size() < st.size;
+            p.note = std::move(why);
+            return p;
         }
         p.kind = PreviewKind::Image;
         p.truncated = false;

@@ -237,6 +237,11 @@ public:
     Q_INVOKABLE void hash();
     Q_INVOKABLE void copyOut(int row, const QUrl& directory);
     Q_INVOKABLE void copyAll(const QUrl& directory);
+    // Copy out… in two steps around the folder dialog: what is copied is the row (-1: the current
+    // directory whole) when the dialog opens. A disk read again before it is accepted copies
+    // nothing, and says so: the row may hold another entry by then.
+    Q_INVOKABLE void prepareCopy(int row);
+    Q_INVOKABLE void copyPrepared(const QUrl& directory);
     Q_INVOKABLE void mount();
     // Drag-out: copies the rows into a fresh staging folder under the temp directory and
     // returns their file URLs for a text/uri-list drag. Refuses (empty list, toast) above
@@ -271,23 +276,30 @@ private:
     };
     struct PreviewRequest {
         PreviewKey key;
-        stein::fs::Inode inode;
-        stein::fs::Stat stat;
+        core::PreviewTarget target;   // by path: the loader's reader may number files otherwise
     };
     struct CachedPreview {
         PreviewKey key;
         std::shared_ptr<const PreviewContent> content;
     };
+    struct CopyTarget {
+        quint64 generation = 0;
+        stein::fs::Inode inode;
+        std::string name;
+    };
 
     // preview: false when a row is selected straight after, which then asks for the preview.
     void listCurrent(const std::string& reselect = {}, bool preview = true);
     stein::Expected<std::shared_ptr<const core::Listing>> readCurrent();
-    bool enterDirectory(const std::string& name, bool preview = true);
+    // listed: the entry's inode when it was picked from a listing, which then decides; else by name.
+    bool enterDirectory(const std::string& name, const stein::fs::Inode* listed = nullptr, bool preview = true);
     // previewStale: the preview shown is not the selection's even if the row did not move.
     void selectRow(int row, PreviewStart start, bool previewStale = false);
     const core::Entry* selectedEntry() const;
     void setBusy(bool b);
     QStringList stage(const std::vector<core::Entry>& picked);
+    void startCopy(const stein::fs::Inode& source, const std::string& name, const QUrl& directory);
+    std::optional<CopyTarget> copyTarget(int row) const;
 
     bool columnLayout() const;
     void layoutChanged();
@@ -309,6 +321,7 @@ private:
     void graceEnded();
     void requestStalled();
     void previewSettingChanged();
+    void uiLockChanged();
     std::shared_ptr<const PreviewContent> cachedPreview(const PreviewKey& key);
     void rememberPreview(const PreviewKey& key, std::shared_ptr<const PreviewContent> content);
 
@@ -323,6 +336,8 @@ private:
     // A reload asked for while one of this object's jobs reads through m_browser on the job
     // thread: volume and snapshot, opened when the job ends.
     std::optional<std::pair<QString, QString>> m_reopen;
+    quint64 m_generation = 0;                  // counts the readers m_browser had: an inode is of one of them
+    std::optional<CopyTarget> m_copyTarget;    // prepareCopy()
 
     bool m_previewLoading = false;             // a preview of the selection is wanted and has not come
     bool m_previewHeld = false;                // ... and waits for a job to let go of the UI
@@ -330,10 +345,6 @@ private:
     quint64 m_ticket = 0;                      // the loader's ticket for it once it was asked; 0 = not asked
     // Tickets start again with every loader, so a result is told apart by the loader it came from too.
     quint64 m_epoch = 0;
-    // The worker may still be inside a request that was given up: a read on failing media or a
-    // decode, neither of which can be interrupted. Cleared by the next result.
-    bool m_workerMayLag = false;
-    int m_abandonedWorkers = 0;                // loaders replaced for that, for this browser
     QString m_loaderError;                     // why this browser has no second reader; not retried per file
     QTimer m_debounce, m_grace, m_stall;
     std::deque<CachedPreview> m_cache;         // most recent first; emptied when the browser or the switch drops the loader

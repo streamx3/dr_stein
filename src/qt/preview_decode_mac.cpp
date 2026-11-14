@@ -26,14 +26,45 @@ using Owned = std::unique_ptr<std::remove_pointer_t<Ref>, Release>;
 
 int numberAt(CFDictionaryRef dictionary, CFStringRef key, int fallback) {
     int value = fallback;
-    const void* found = CFDictionaryGetValue(dictionary, key);
+    const void* found = dictionary ? CFDictionaryGetValue(dictionary, key) : nullptr;
     if (found && CFGetTypeID(found) == CFNumberGetTypeID()) CFNumberGetValue(static_cast<CFNumberRef>(found), kCFNumberIntType, &value);
     return value;
 }
 
+bool flagAt(CFDictionaryRef dictionary, CFStringRef key) {
+    const void* found = dictionary ? CFDictionaryGetValue(dictionary, key) : nullptr;
+    return found && CFGetTypeID(found) == CFBooleanGetTypeID() && CFBooleanGetValue(static_cast<CFBooleanRef>(found));
+}
+
+CFDictionaryRef dictionaryAt(CFDictionaryRef dictionary, CFStringRef key) {
+    const void* found = CFDictionaryGetValue(dictionary, key);
+    return found && CFGetTypeID(found) == CFDictionaryGetTypeID() ? static_cast<CFDictionaryRef>(found) : nullptr;
+}
+
+// Whether ImageIO makes the thumbnail strip by strip, holding little of the picture: measured
+// for baseline JPEG, PNG that is not interlaced and HEIF (a 16384 x 16384 one stays near
+// 140 MiB). An interlaced PNG, a float TIFF and the formats not measured may be decoded whole.
+bool streamsToThumbnail(const QString& type, CFDictionaryRef properties) {
+    if (flagAt(properties, kCGImagePropertyIsFloat)) return false;
+    if (type == QLatin1String("public.png")) return numberAt(dictionaryAt(properties, kCGImagePropertyPNGDictionary), kCGImagePropertyPNGInterlaceType, 0) == 0;
+    return type == QLatin1String("public.jpeg") || type == QLatin1String("public.heic") || type == QLatin1String("public.heif") || type == QLatin1String("public.avif");
+}
+
+// What the whole picture takes at its own depth, at least four bytes a pixel.
+qint64 wholeBytes(qint64 width, qint64 height, CFDictionaryRef properties) {
+    const int depth = std::max(8, numberAt(properties, kCGImagePropertyDepth, 8));
+    int channels = 3;
+    if (const void* model = CFDictionaryGetValue(properties, kCGImagePropertyColorModel); model && CFGetTypeID(model) == CFStringGetTypeID()) {
+        if (CFEqual(model, kCGImagePropertyColorModelGray)) channels = 1;
+        else if (CFEqual(model, kCGImagePropertyColorModelCMYK)) channels = 4;
+    }
+    if (flagAt(properties, kCGImagePropertyHasAlpha)) ++channels;
+    return width * height * std::max<qint64>(4, qint64(channels) * ((depth + 7) / 8));
+}
+
 } // namespace
 
-PlatformImage platformDecode(std::span<const std::byte> bytes, int box, qint64 maxSourcePixels) {
+PlatformImage platformDecode(std::span<const std::byte> bytes, int box, qint64 maxSourcePixels, qint64 maxWholeBytes) {
     PlatformImage out;
     // No copy and no deallocator: the data object only borrows the caller's bytes, and every
     // object made from it is released before this function returns.
@@ -58,6 +89,10 @@ PlatformImage platformDecode(std::span<const std::byte> bytes, int box, qint64 m
     const bool sideways = numberAt(properties.get(), kCGImagePropertyOrientation, 1) >= 5;
     out.sourceSize = sideways ? QSize(height, width) : QSize(width, height);
     if (qint64(width) * height > maxSourcePixels) {
+        out.tooLarge = true;
+        return out;
+    }
+    if (!streamsToThumbnail(QString::fromCFString(type), properties.get()) && wholeBytes(width, height, properties.get()) > maxWholeBytes) {
         out.tooLarge = true;
         return out;
     }

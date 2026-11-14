@@ -52,6 +52,9 @@ public:
     stein::Expected<Listing> list(const stein::fs::Inode& dir);
     stein::Expected<Listing> listCurrent() { return list(current()); }
     stein::Expected<void> enter(std::string_view name);      // a directory inside the current one
+    // The directory entry `name` as it was listed here: by its inode, which tells it from another
+    // entry of the same name (damaged media), whereas a lookup by name finds the first.
+    stein::Expected<void> enter(std::string_view name, const stein::fs::Inode& listed);
     stein::Expected<void> goTo(std::string_view absolutePath); // "/etc/ssh"
     // Both return the name of the child directory that was left, for the list to re-select;
     // "" when nothing changed.
@@ -61,6 +64,9 @@ public:
     stein::fs::Inode current() const { return m_crumbs.back().inode; }
     const std::vector<Crumb>& breadcrumbs() const { return m_crumbs; }
     std::string pathText() const;                            // "/etc/ssh"
+    // The names that lead from the root to `name` in the current directory, one a step: how
+    // another reader of the same filesystem finds that entry, whose inode numbers may differ.
+    std::vector<std::string> pathTo(std::string_view name) const;
     const std::string& title() const { return m_title; }     // label or "ext4"
     const std::string& fsName() const { return m_fsName; }   // "ext4"
     bool caseSensitive() const { return m_reader->caseSensitive(); }

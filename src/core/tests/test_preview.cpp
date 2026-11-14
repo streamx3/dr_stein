@@ -132,7 +132,9 @@ TEST_CASE("image formats are told by their magic numbers, and near misses are no
         {"TIFF, big endian", "MM\0*"s + be32(8), "tiff"},
         {"ICO with three pictures", iconHeader(1, 3, 6 + 3 * 16), "ico"},
         {"CUR", iconHeader(2, 1, 22), "cur"},
-        {"ICNS", "icns" + be32(1024) + "ic07", "icns"},
+        {"ICNS", "icns" + be32(1024) + "ic07" + be32(1016), "icns"},
+        {"ICNS with a table of contents first", "icns" + be32(4096) + "TOC " + be32(16), "icns"},
+        {"ICNS with no pictures", "icns" + be32(8), "icns"},
         {"HEIC", ftyp("heic", {"mif1", "heic"}), "heic"},
         {"HEIC, 10 bit", ftyp("heix"), "heic"},
         {"HEIF sequence", ftyp("msf1", {"msf1", "hevc"}), "heic"},
@@ -177,6 +179,10 @@ TEST_CASE("image formats are told by their magic numbers, and near misses are no
         {"MPEG program stream", "\0\0\x01\xBA"s + std::string(textOf(binary("", 32))), ""},
         {"TGA, which has no magic", "\0\0\x02\0\0\0\0\0\0\0\0\0"s + le16(64) + le16(64) + "\x18\0"s + std::string(16, '\x7F'), ""},
         {"ICNS cut short", "icns", ""},
+        {"a note that starts with icns", "icns notes: how the icons were made\n", ""},
+        {"icns, a newline, then words", "icns\nnotes about the icons\n", ""},
+        {"ICNS whose first entry runs past its end", "icns" + be32(64) + "ic07" + be32(100), ""},
+        {"ICNS whose first entry has no type", "icns" + be32(64) + "\x01\x02\x03\x04"s + be32(16), ""},
         {"MP4", ftyp("isom", {"isom", "mp42"}), ""},
         {"QuickTime", ftyp("qt  "), ""},
         {"MP4 that lists a HEIF brand among others", ftyp("mp42", {"mp42", "heic"}), ""},
@@ -413,6 +419,13 @@ TEST_CASE("what is not a picture is text or hex, from the head alone") {
         CHECK(pv.note == "");
         CHECK(pv.textNote == "");
     }
+    SUBCASE("UTF-8 text with a control character, cut inside a character by the head, stays text") {
+        std::string text = "a\v";   // a control character: only valid UTF-8 makes this text
+        for (int i = 0; i < 1000; ++i) text += "\xD0\xB6";
+        const auto pv = previewOf(text, PreviewLimits{.head = 1001});   // ends on the first byte of a character
+        CHECK(pv.kind == PreviewKind::Text);
+        CHECK(pv.text == text.substr(0, 1000));
+    }
     SUBCASE("a text file that merely starts with BM stays text") {
         const auto pv = previewOf("BMW service log\n2024-01-01 oil change\n");
         CHECK(pv.kind == PreviewKind::Text);
@@ -517,6 +530,14 @@ TEST_CASE("an SVG is a picture only when it is small and keeps to itself") {
         {"a prefixed picture in capitals", open + R"svg(<SVG:IMAGE xlink:href="#x"/>)svg" + "</svg>"},
         {"a prefixed script", open + R"svg(<svg:script>go()</svg:script>)svg" + "</svg>"},
         {"prefixed foreign content", open + R"svg(<a:foreignObject xmlns:a="http://www.w3.org/2000/svg"/>)svg" + "</svg>"},
+        // QtSvg opens the style sheet a processing instruction names as a file, "#" or not.
+        {"a style sheet linked by a name that starts with #", R"svg(<?xml-stylesheet type="text/css" href="#canary.css"?>)svg" + open + body + "</svg>"},
+        // QtSvg reads url (...) with white space before the parenthesis as url(...).
+        {"a paint server after a space", open + R"svg(<rect fill="url (red.png#x)"/>)svg" + "</svg>"},
+        {"a paint server after a tab", open + "<rect style=\"fill:url\t(file:///tmp/p.svg#g)\"/></svg>"},
+        // The parser reads the text in the encoding declared; the gate reads bytes.
+        {"an encoding the gate does not read", R"svg(<?xml version="1.0" encoding="UTF-7"?>)svg" + open + body + "</svg>"},
+        {"an EBCDIC encoding", R"svg(<?xml version='1.0' encoding = 'IBM037'?>)svg" + open + body + "</svg>"},
     };
     for (const auto& [what, svg] : hostile) {
         CAPTURE(what);
@@ -529,6 +550,9 @@ TEST_CASE("an SVG is a picture only when it is small and keeps to itself") {
     }
     CHECK(svgSafeToRender(plain));
     CHECK(svgSafeToRender(""));
+    CHECK(svgSafeToRender(R"svg(<?xml version="1.0" encoding="ISO-8859-1"?>)svg" + plain));
+    CHECK(svgSafeToRender(R"svg(<?xml version='1.0' encoding='utf-8' standalone='no'?>)svg" + plain));
+    CHECK(svgSafeToRender(open + "<text>a url is not a reference (nor is url-encoding)</text></svg>"));
     // Names that merely start like a banned one, and closing tags, are no element of that kind.
     CHECK(svgSafeToRender(open + "<imagery/><scripted/><x:image-set/></svg>"));
     CHECK(svgSafeToRender("<svg>a < b, 1<2</svg>"));
@@ -696,9 +720,21 @@ public:
         m_gate->changed.notify_all();
     }
 
+    // One directory, the root; a file is named by its inode number written out ("10").
     Expected<fs::Inode> root() const override { return fs::Inode{1}; }
-    Expected<fs::Inode> lookup(const fs::Inode&, std::string_view) override { return fail(ErrorCategory::NotFound, "no such entry"); }
-    Expected<fs::Stat> stat(const fs::Inode&) override { return fail(ErrorCategory::NotFound, "no such inode"); }
+    Expected<fs::Inode> lookup(const fs::Inode& dir, std::string_view name) override {
+        for (const auto& [id, content] : m_files)
+            if (dir.id == 1 && name == std::to_string(id)) return fs::Inode{id};
+        return fail(ErrorCategory::NotFound, "no such entry");
+    }
+    Expected<fs::Stat> stat(const fs::Inode& inode) override {
+        const auto it = m_files.find(inode.id);
+        if (it == m_files.end()) return fail(ErrorCategory::NotFound, "no such inode");
+        fs::Stat st;
+        st.type = fs::FileType::File;
+        st.size = it->second.size();
+        return st;
+    }
     Expected<std::vector<fs::DirEntry>> readdir(const fs::Inode&) override { return std::vector<fs::DirEntry>{}; }
     Expected<std::string> readlink(const fs::Inode&) override { return fail(ErrorCategory::InvalidArgument, "not a symbolic link"); }
     Expected<std::size_t> read(const fs::Inode& file, std::uint64_t offset, std::span<std::byte> dst) override {
@@ -802,7 +838,7 @@ struct Rig {
         fs::Stat st;
         st.type = fs::FileType::File;
         st.size = files.at(inode).size();
-        return loader->request(fs::Inode{inode}, st);
+        return loader->request(PreviewTarget{{std::to_string(inode)}, st});
     }
     // The worker lets go of the reader when it exits: once that happened nothing can arrive.
     bool shutDown() {
@@ -1007,7 +1043,7 @@ TEST_CASE("the loader delivers failures too") {
         fs::Stat st;
         st.type = fs::FileType::File;
         st.size = 5;
-        const auto ticket = loader.request(fs::Inode{10}, st);
+        const auto ticket = loader.request(PreviewTarget{{"10"}, st});
         REQUIRE(inbox->waitFor(ticket));
         const auto result = inbox->take(0);
         REQUIRE(!result.preview);
@@ -1031,4 +1067,294 @@ TEST_CASE("a burst of requests ends with the last one delivered, each ticket at 
     REQUIRE(!tickets.empty());
     CHECK(tickets.back() == last);
     CHECK(std::adjacent_find(tickets.begin(), tickets.end(), std::greater_equal<>()) == tickets.end());
+}
+
+namespace {
+
+// A small tree that numbers its files afresh in every instance, as btrfs numbers subvolumes in
+// the order one reader meets them: an inode of one reader names nothing, or another file, in
+// the next. Node 0 is the root; a lookup finds the first of two entries of the same name.
+class RenumberingReader final : public fs::Reader {
+public:
+    struct Node {
+        std::string name;
+        std::size_t parent = 0;
+        bool dir = false;
+        std::string content;
+        std::int64_t mtime = 0;
+    };
+
+    explicit RenumberingReader(std::vector<Node> nodes) : m_nodes(std::move(nodes)), m_base(nextBase()) {}
+
+    Expected<fs::Inode> root() const override { return fs::Inode{m_base}; }
+    Expected<fs::Inode> lookup(const fs::Inode& dir, std::string_view name) override {
+        auto d = index(dir);
+        if (!d) return fail(d.error());
+        for (std::size_t i = 1; i < m_nodes.size(); ++i)
+            if (m_nodes[i].parent == *d && m_nodes[i].name == name) return fs::Inode{m_base + i};
+        return fail(ErrorCategory::NotFound, "no entry named '" + std::string(name) + "'");
+    }
+    Expected<fs::Stat> stat(const fs::Inode& inode) override {
+        auto i = index(inode);
+        if (!i) return fail(i.error());
+        const Node& n = m_nodes[*i];
+        fs::Stat st;
+        st.type = n.dir ? fs::FileType::Directory : fs::FileType::File;
+        st.size = n.content.size();
+        st.mtime = n.mtime;
+        return st;
+    }
+    Expected<std::vector<fs::DirEntry>> readdir(const fs::Inode& dir) override {
+        auto d = index(dir);
+        if (!d) return fail(d.error());
+        std::vector<fs::DirEntry> out;
+        for (std::size_t i = 1; i < m_nodes.size(); ++i)
+            if (m_nodes[i].parent == *d) out.push_back(fs::DirEntry{m_nodes[i].name, fs::Inode{m_base + i}, m_nodes[i].dir ? fs::FileType::Directory : fs::FileType::File});
+        return out;
+    }
+    Expected<std::size_t> read(const fs::Inode& file, std::uint64_t offset, std::span<std::byte> dst) override {
+        auto i = index(file);
+        if (!i) return fail(i.error());
+        const std::string& c = m_nodes[*i].content;
+        if (offset >= c.size()) return std::size_t{0};
+        const std::size_t n = std::min<std::size_t>(dst.size(), c.size() - static_cast<std::size_t>(offset));
+        std::memcpy(dst.data(), c.data() + offset, n);
+        return n;
+    }
+    Expected<std::string> readlink(const fs::Inode&) override { return fail(ErrorCategory::InvalidArgument, "not a symbolic link"); }
+
+private:
+    static std::uint64_t nextBase() {
+        static std::atomic<std::uint64_t> instances{0};
+        return ++instances * 1000;
+    }
+    Expected<std::size_t> index(const fs::Inode& inode) const {
+        if (inode.id < m_base || inode.id - m_base >= m_nodes.size()) return fail(ErrorCategory::InvalidArgument, "unknown subvolume in inode id");
+        return static_cast<std::size_t>(inode.id - m_base);
+    }
+
+    std::vector<Node> m_nodes;
+    std::uint64_t m_base;
+};
+
+const std::vector<RenumberingReader::Node> kTree{
+    {"/", 0, true, "", 0},
+    {"photos", 0, true, "", 0},
+    {"2026", 1, true, "", 0},
+    {"note.txt", 2, false, "found again by its path\n", 1'700'000'000},
+    {"twin", 0, false, "first\n", 1},
+    {"twin", 0, false, "the second twin\n", 2},
+};
+
+const Entry& entryNamed(const Listing& listing, std::string_view name, std::size_t nth = 0) {
+    for (const auto& e : listing.entries)
+        if (e.entry.name == name && nth-- == 0) return e;
+    FAIL("no entry named " << name);
+    throw std::logic_error("unreachable");
+}
+
+} // namespace
+
+TEST_CASE("the loader finds a file again by its path, whatever its own reader numbers it") {
+    auto browser = Browser::fromReader(std::make_unique<RenumberingReader>(kTree), "tree", "test");
+    REQUIRE(browser);
+    REQUIRE(browser->goTo("/photos/2026"));
+    auto listing = browser->listCurrent();
+    REQUIRE(listing);
+    const Entry note = entryNamed(*listing, "note.txt");
+    CHECK((browser->pathTo("note.txt") == std::vector<std::string>{"photos", "2026", "note.txt"}));
+
+    auto reader = std::make_unique<RenumberingReader>(kTree);
+    CHECK(!reader->stat(note.entry.inode));   // the browser's inode means nothing to the loader's reader
+    auto inbox = std::make_shared<Inbox>();
+    PreviewLoader loader(std::move(reader), {}, nullptr, into(inbox));
+
+    const auto found = loader.request(PreviewTarget{browser->pathTo("note.txt"), note.stat});
+    REQUIRE(inbox->waitFor(found));
+    const auto a = inbox->take(0);
+    REQUIRE(a.preview);
+    CHECK(a.preview->kind == PreviewKind::Text);
+    CHECK(a.preview->text == "found again by its path\n");
+
+    // Gone since it was listed: unreadable, with the reader's words.
+    const auto gone = loader.request(PreviewTarget{{"photos", "2026", "gone.txt"}, note.stat});
+    REQUIRE(inbox->waitFor(gone));
+    const auto b = inbox->take(1);
+    REQUIRE(b.preview);
+    CHECK(b.preview->kind == PreviewKind::Unreadable);
+    CHECK(b.preview->note == "no entry named 'gone.txt'");
+
+    // Two entries of one name, as on damaged media: the name finds the first. The second is not
+    // shown as the first one's content.
+    REQUIRE(browser->goTo("/"));
+    auto root = browser->listCurrent();
+    REQUIRE(root);
+    const Entry first = entryNamed(*root, "twin", 0), second = entryNamed(*root, "twin", 1);
+    REQUIRE(first.stat.size != second.stat.size);
+    const auto twin1 = loader.request(PreviewTarget{browser->pathTo("twin"), first.stat});
+    REQUIRE(inbox->waitFor(twin1));
+    const auto twin2 = loader.request(PreviewTarget{browser->pathTo("twin"), second.stat});
+    REQUIRE(inbox->waitFor(twin2));
+    const auto c = inbox->take(2), d = inbox->take(3);
+    REQUIRE(c.preview);
+    CHECK(c.preview->text == "first\n");
+    REQUIRE(d.preview);
+    CHECK(d.preview->kind == PreviewKind::Unreadable);
+    CHECK(d.preview->note == "not the file listed under this name: another entry has the same name, or it changed");
+
+    // A path that names nothing at all.
+    const auto none = loader.request(PreviewTarget{{}, note.stat});
+    REQUIRE(inbox->waitFor(none));
+    CHECK(inbox->take(4).preview->kind == PreviewKind::Unreadable);
+}
+
+TEST_CASE("the loader tells which request its worker is in, and whether it reads or decodes") {
+    using Phase = PreviewActivity::Phase;
+    Rig rig;
+    auto hold = std::make_shared<Hold>();
+    rig.gate->close();
+    rig.start({}, hold->transform(hold));
+    CHECK(rig.loader->activity().ticket == 0);
+    CHECK(rig.loader->activity().phase == Phase::Idle);
+
+    const auto first = rig.request(10);
+    REQUIRE(rig.gate->waitEntered(1));
+    auto a = rig.loader->activity();
+    CHECK(a.ticket == first);
+    CHECK(a.phase == Phase::Reading);
+
+    rig.gate->release();
+    REQUIRE(hold->waitEntered(1));
+    a = rig.loader->activity();
+    CHECK(a.ticket == first);
+    CHECK(a.phase == Phase::Transforming);
+
+    // Superseded, the worker is still in the first one's decode: that is what the caller sees.
+    const auto second = rig.request(11);
+    a = rig.loader->activity();
+    CHECK(a.ticket == first);
+    CHECK(a.phase == Phase::Transforming);
+
+    hold->release();
+    REQUIRE(rig.inbox->waitFor(second));
+    a = rig.loader->activity();   // idle before it delivers
+    CHECK(a.ticket == 0);
+    CHECK(a.phase == Phase::Idle);
+    REQUIRE(rig.shutDown());
+    CHECK((rig.inbox->tickets() == Tickets{second}));
+}
+
+TEST_CASE("the process can wait for the workers that outlive their loaders") {
+    Rig rig;
+    auto hold = std::make_shared<Hold>();
+    rig.start({}, hold->transform(hold));
+    rig.request(10);
+    REQUIRE(hold->waitEntered(1));
+    rig.loader.reset();
+    CHECK(PreviewLoader::workersAlive() >= 1);
+    CHECK(!PreviewLoader::waitForWorkers(50ms));   // still in its decode
+    hold->release();
+    CHECK(PreviewLoader::waitForWorkers(kPatience));
+    CHECK(PreviewLoader::workersAlive() == 0);
+    CHECK(rig.gate->isReaderGone());   // its reader went before the worker counted itself out
+    CHECK(rig.inbox->tickets().empty());
+}
+
+TEST_CASE("a folder is entered as it was listed, even beside another of the same name") {
+    const std::vector<RenumberingReader::Node> tree{
+        {"/", 0, true, "", 0},
+        {"dup", 0, true, "", 0},
+        {"dup", 0, true, "", 0},
+        {"in-first.txt", 1, false, "1\n", 0},
+        {"in-second.txt", 2, false, "2\n", 0},
+        {"file", 0, false, "x\n", 0},
+    };
+    auto browser = Browser::fromReader(std::make_unique<RenumberingReader>(tree), "tree", "test");
+    REQUIRE(browser);
+    auto root = browser->listCurrent();
+    REQUIRE(root);
+    const Entry second = entryNamed(*root, "dup", 1);
+
+    REQUIRE(browser->enter("dup", second.entry.inode));
+    CHECK(browser->pathText() == "/dup");
+    auto inside = browser->listCurrent();
+    REQUIRE(inside);
+    REQUIRE(inside->entries.size() == 1);
+    CHECK(inside->entries[0].entry.name == "in-second.txt");
+
+    CHECK(browser->up() == "dup");
+    REQUIRE(browser->enter("dup"));   // by name: the first of the two
+    inside = browser->listCurrent();
+    REQUIRE(inside);
+    REQUIRE(inside->entries.size() == 1);
+    CHECK(inside->entries[0].entry.name == "in-first.txt");
+
+    CHECK(browser->up() == "dup");
+    CHECK(!browser->enter("file", entryNamed(*root, "file").entry.inode));   // not a directory
+    CHECK(browser->pathText() == "/");
+}
+
+namespace {
+
+std::string be16s(unsigned v) { return {static_cast<char>((v >> 8) & 0xFF), static_cast<char>(v & 0xFF)}; }
+
+// A JPEG's markers around nothing worth decoding: a frame of kind `sof` (0xC0 baseline, 0xC2
+// progressive), the first component sampled 2 x 2 and the others 1 x 1, and `scans` scans of a
+// few bytes of entropy-coded data each, a stuffed FF and a restart marker among them.
+std::string jpegMarkers(unsigned sof, unsigned width, unsigned height, unsigned components, unsigned scans) {
+    std::string j = "\xFF\xD8\xFF\xE0"s + be16s(16) + "JFIF\0"s + std::string(9, '\0');
+    std::string frame = "\x08"s + be16s(height) + be16s(width) + static_cast<char>(components);
+    for (unsigned c = 0; c < components; ++c) frame += std::string{static_cast<char>(c + 1), static_cast<char>(c == 0 ? 0x22 : 0x11), 0};
+    j += "\xFF"s + static_cast<char>(sof) + be16s(2 + frame.size()) + frame;
+    j += "\xFF\xC4"s + be16s(5) + "\x00\xFF\xDA"s;   // a table whose bytes look like a scan marker
+    for (unsigned n = 0; n < scans; ++n) {
+        const std::string scan = "\x01\x01\x00\x00\x3F\x00"s;
+        j += "\xFF\xDA"s + be16s(2 + scan.size()) + scan + "\x12\xFF\x00\x34\xFF\xD3\x56"s;
+    }
+    return j + "\xFF\xD9";
+}
+
+} // namespace
+
+TEST_CASE("a JPEG that would hold the whole picture to decode it is refused by its headers") {
+    SUBCASE("a baseline JPEG decodes in strips at any size: a picture") {
+        const auto pv = previewOf(jpegMarkers(0xC0, 16384, 16384, 3, 1));
+        CHECK(pv.kind == PreviewKind::Image);
+        CHECK(pv.imageFormat == "jpeg");
+    }
+    SUBCASE("a progressive photo of usual size and scans: a picture") {
+        CHECK(previewOf(jpegMarkers(0xC2, 4000, 3000, 3, 10)).kind == PreviewKind::Image);
+        CHECK(previewOf(jpegMarkers(0xC2, 4000, 3000, 3, 100)).kind == PreviewKind::Image);
+    }
+    SUBCASE("progressive and large: every coefficient is kept, whatever size it is drawn at") {
+        // 16384 x 16384, 4:2:0: 512 MiB of luma coefficients and 128 MiB for each chroma plane.
+        const std::string file = jpegMarkers(0xC2, 16384, 16384, 3, 1);
+        const auto pv = previewOf(file);
+        CHECK(pv.kind == PreviewKind::Hex);
+        CHECK(pv.imageFormat == "jpeg");
+        CHECK(pv.note == "progressive JPEG image, 16384 × 16384: too large to decode");
+        CHECK(textOf(pv.bytes) == file);
+        // No scan at all yet, as in a file cut short: the frame alone says it.
+        CHECK(previewOf(jpegMarkers(0xC2, 16384, 16384, 3, 0)).kind == PreviewKind::Hex);
+        // Just within: 8192 x 8192 holds 192 MiB.
+        CHECK(previewOf(jpegMarkers(0xC2, 8192, 8192, 3, 1)).kind == PreviewKind::Image);
+    }
+    SUBCASE("a baseline JPEG in several scans keeps its coefficients too") {
+        const auto pv = previewOf(jpegMarkers(0xC0, 16384, 16384, 3, 3));
+        CHECK(pv.kind == PreviewKind::Hex);
+        CHECK(pv.note == "progressive JPEG image, 16384 × 16384: too large to decode");
+    }
+    SUBCASE("every scan walks all coefficients again: too many is refused at any size") {
+        const auto pv = previewOf(jpegMarkers(0xC2, 64, 64, 1, 101));
+        CHECK(pv.kind == PreviewKind::Hex);
+        CHECK(pv.note == "JPEG image in 101 scans: too many to decode");
+    }
+    SUBCASE("a large one past the head goes back to its head as hex") {
+        std::string file = jpegMarkers(0xC2, 16384, 16384, 3, 1);
+        file.insert(file.size() - 2, std::string(300, '\x55'));   // more entropy-coded data
+        const auto pv = previewOf(file, kSmall);
+        CHECK(pv.kind == PreviewKind::Hex);
+        CHECK(pv.bytes.size() == 64);
+        CHECK(pv.truncated);
+    }
 }

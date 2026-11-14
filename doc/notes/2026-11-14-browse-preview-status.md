@@ -23,8 +23,9 @@ The fix round and a review of the riskiest code were done later the same day
 (§7, "Done on 2026-11-14"), and the whole change was then committed and
 pushed in both repositories (libstein first, then dr_stein with the
 submodule pointer). Real key presses in an active window were never
-exercised, and the review was one reviewer's pass plus a read of the new
-SVG code, not the multi-reviewer pass that was planned.
+exercised. The review was first one reviewer's pass plus a read of the new
+SVG code; the planned multi-reviewer pass ran in the evening and its 28
+findings are in §13.
 
 Later the same day the owner asked for names that fit and for a column view
 as in Finder, as the default. That was built on top of this work and is
@@ -220,12 +221,8 @@ this note.
    Settings. Check the selection cue too: accent tint and bar while the
    list or the strip has the keyboard, grey while it has not, ancestors
    always grey.
-2. **An independent multi-reviewer pass** over the preview change, as
-   first planned (the review workflow, run `wf_b44fcf78-356`, was stopped
-   before it returned anything; the lenses were concurrency and lifetime,
-   core logic and tests, decoding and painting, QML keys and focus,
-   integration and portability). The column view had a three-reviewer
-   pass of its own (§12); this one is still open.
+2. ~~An independent multi-reviewer pass~~ over the preview change: done
+   in the evening of 2026-11-14 (§13). What it left open is listed there.
 3. **Linux / Windows build** of this change and of the column view (the
    Mac file is guarded in CMake; nothing was compiled elsewhere; a reading
    for GCC 13 and MSVC found nothing).
@@ -322,7 +319,7 @@ Open, noticed in the review and left alone:
 cd /Users/andrii/git/dr_stein
 cmake --build --preset debug                       # app + core tests
 cmake --build --preset debug --target all_qmllint  # must print no warnings
-build/debug/src/core/drstein_core_tests            # 84 cases, 3741 assertions (73 and 3487 before §12)
+build/debug/src/core/drstein_core_tests            # 89 cases, 4135 assertions (84 before §13, 73 before §12)
 ```
 
 Scripted run (the app quits by itself only when `DRSTEIN_SCREENSHOT` is set;
@@ -510,3 +507,87 @@ Modified: `README.md`, `doc/design/01-application-architecture.md`,
 New: `src/core/include/drstein/core/columns.hpp`, `src/core/src/columns.cpp`,
 `src/core/tests/test_columns.cpp`, `src/app/qml/views/BrowseColumns.qml`,
 `src/app/qml/views/BrowseList.qml`.
+
+## 13. The multi-reviewer pass (evening of 2026-11-14)
+
+Four reviewers, each with a fresh context, the code of `d85a92e` (with
+`a7272f7` where it touches the same code, and libstein `81ebdf4`) and the
+claimed invariants as hypotheses to refute; none was given this note or the
+design document. Lenses: (1) concurrency and lifetime, (2) SVG and parsing
+security, (3) decode resource limits, (4) the preview's UI state in both
+layouts. Lenses 1 and 2 ran on Fable, 3 and 4 on Opus. Each finding was then
+checked by the coordinating session: by running the reviewer's repro again,
+by a failing core test before the fix, by a scripted run of the app, or, where
+none was possible, by reading the code path.
+
+### Findings and verdicts
+
+| Id | Finding | Verdict, how | Fix |
+|---|---|---|---|
+| C1 | btrfs numbers subvolumes per reader: the worker's reader could not resolve any file inside a subvolume ("unreadable") | confirmed, code (`fs_btrfs_reader.cpp` `treeIndexFor`); core test with a reader that renumbers | requests carry the path; the worker looks it up and checks type, size, mtime |
+| C2 | quitting during an SVG render crashed (static destructors under the detached worker) | confirmed in the app: 2 of 4 runs exit 139 | `main()` destroys the QML objects, waits ≤ 1 s for workers, else `_Exit`; 6 of 6 runs exit 0 |
+| C3 | the 10 s stall rule opened a reader on the GUI thread behind a read that hangs (devices serialise reads): the UI froze | confirmed, the reviewer's repro on `AlignedDevice` (3 s freeze) | replace only when `activity()` says the worker is in the transform of a superseded ticket |
+| C4 | the "worker may lag" flag stayed set: a slow legitimate read was restarted | confirmed, code | flag removed; `activity()` decides |
+| C5 | "at most 3 abandoned workers" reset on every reopen | confirmed, code | bound on workers alive in the process (`workersAlive()` < 3) |
+| C6 | a read in flight when a job locks the UI went on, and its result was shown | confirmed, code | the lock cancels it and holds; resent on unlock |
+| U1 | Copy out / Copy all acted on a row index after a re-probe during the folder dialog (older code) | confirmed in the app (re-probe, then accept) | `prepareCopy(row)` fixes the entry when the dialog opens; a re-read disk copies nothing and says so |
+| U2 | text and hex opened at the previous file's scroll offset | confirmed in the app | the view returns to the start when its text changes |
+| U3 | after "Preview this file" with previews off, the loader and reader stayed | confirmed, code (was listed in §7 as open) | dropped when the selection settles to "off" |
+| U4 | the Hex/Image button is sticky and was enabled and labelled "Text" where it does nothing | half: stickiness is by design and kept; the label and the enabled state were wrong | enabled only for a text or a picture with a hex head; label from what is shown |
+| U5 | turning previews on showed the "off" panel while the file was read | confirmed in the app | "loading" at once |
+| U6 | columns: the peek is listed by inode but entered by name (two folders of one name) | confirmed, core test | `Browser::enter(name, inode)` everywhere a listed folder is entered |
+| U7 | a column read again after a failure lost its highlighted row | confirmed, code | the earlier row is kept only for the very same listing |
+| D1 | a progressive JPEG of 171 bytes made libjpeg hold 2 GiB (coefficient buffer), whatever the scaled size | confirmed, repro (2.08 GiB) | core refuses multi-scan JPEGs above 256 MiB of coefficients |
+| D2 | a JPEG of 10 000 scans kept the worker busy for minutes (linear in scans) | confirmed, repro | core refuses more than 100 scans |
+| D3 | ImageIO decodes an interlaced PNG (1 GiB) or a float TIFF (8 GiB) whole | confirmed, repro (killed at 3 GiB) | 512 MiB whole-decode budget for anything but baseline JPEG, plain PNG and HEIF |
+| D4 | SVG filters and style-sheet masks escape the count | confirmed; same as S3/S4 | see S3, S4 |
+| D5 | the stall rule multiplied bombs and then wedged previews | confirmed; same cause as C3/C5 | see C3, C5 |
+| D6 | the Qt path peaked at twice its budget (scaling before converting); an ICO or GIF header named a false size | confirmed, repro (GIF of 8000² labelled 1 × 1) | convert in place, then scale; size from the decoded picture |
+| D7 | valid UTF-8 above 256 KiB with one control character showed as hex | confirmed, repro and core test | the head is judged with a cut character trimmed |
+| D8 | a text starting "icns" was taken for an icon file and read whole | confirmed, repro and core test | ICNS needs a plausible length and first entry |
+| S1 | ids defined twice: the count followed decoys, a 600-link `<use>` chain crashed the worker (SIGBUS) | confirmed, repro (exit 138) | a reference counts every definition |
+| S2 | `url (#id)` with a space: followed by QtSvg, seen by neither gate nor count; crashes and 4.8 GiB | confirmed, repro (exit 138) | gate and count read `url\s*(` |
+| S3 | references in `<style>` rules were not counted: crash, hang; selector matching cost unbounded | confirmed, repro (exit 138) | style rules followed to the elements their selectors may match; rules × elements ≤ 10 M |
+| S4 | element count is not render cost: one path of 90 000 segments took 251 s | confirmed; **not fixed** | mitigated (layers weighted, 1024 px); the stall rule lets the next preview past; see below |
+| S5 | 125 nested masked groups took 4 GiB within the limits | confirmed, repro | masks and filters add 2000 each; refused now |
+| S6 | `<?xml-stylesheet href="#name.css"?>` read a host file named "#name.css" | confirmed, repro (canary) | the gate refuses `<?xml-stylesheet` |
+| S7 | the gate reads bytes, QtSvg the declared encoding (UTF-7 on a Qt with ICU) | plausible, not reproduced (this Qt has no ICU) | the gate refuses encodings other than UTF-8, ASCII, Latin-1 |
+
+Claims that held under attack, per the reviewers: the loader's locking,
+delivery and wake-ups (also under ThreadSanitizer); the epoch and ticket
+filtering; the cache keys; no shared mutable state between two readers
+(ThreadSanitizer over 111 fixture filesystems); libstein's table fix; the
+sniffers' bounds; the 16384² cap before ImageIO; the 2048 px box; the env
+overrides never storing settings; `.svgz` never reaching QtSvg.
+
+### Verified
+- `cmake --build --preset debug` clean; qmllint 0 warnings (the old Info in
+  `FrameResizer.qml`); core tests 89/89, 4135 assertions (5 new cases, and
+  new checks in three existing ones).
+- The reviewers' crafted files through the real `core::preview()` and
+  `decodePreview()` (scratch harness): every D and S repro above is now
+  refused in milliseconds or bounded; a plain 16384² PNG and a 16384² HEIC
+  still decode (140 and 90 MiB); `aurora-wave.svg`, an Illustrator-style
+  SVG with style-sheet clip paths, a mask, a marker and a filter, and the
+  reviewers' benign style-sheet files still render.
+- Scripted runs of the app (exFAT image of a heavy SVG, 12 000 gradient
+  rects, two long texts, a small SVG): quitting during a render exits 0 in
+  6 of 6; U1, U2, U5 as in the table; the column layout's peek click, Left
+  and Right. The stored settings were compared with a snapshot afterwards.
+  Note: a run that opens an image from the command line also writes
+  `images.lastDir`; it was put back by hand. The recipe in §10 does not
+  cover that.
+
+### Left open
+- **S4, the cost of drawing an SVG.** No static count bounds it: a single
+  self-crossing path, long dash patterns, thousands of gradient fills. The
+  real fix is rendering SVGs in a separate process with a time limit (and
+  it would also contain a crash). Until then the stall rule lets later
+  previews past a long render, which goes on using a core until it ends or
+  the app quits.
+- **TIFF and other formats ImageIO was not measured on** are refused above
+  512 MiB whole, though some (a 16-bit stripped TIFF) would have streamed.
+- C1 was checked with a renumbering test reader; no btrfs image with
+  subvolumes was browsed. C3 and C6 were not driven in the app.
+- Not built on Linux or Windows (§7.3), where S7 matters most.
+

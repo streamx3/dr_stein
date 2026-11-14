@@ -142,7 +142,7 @@ session so re-probes skip it; a container the library cannot open says why;
 VeraCrypt trial decryption only on "Try VeraCrypt…"), NFS loopback mounts on
 macOS named
 after the volume label with Reveal in Finder and external unmounts noticed
-within 2 s, surface scans, profile backups. The core tests (84 cases) run on a
+within 2 s, surface scans, profile backups. The core tests (89 cases) run on a
 GPT and an MBR composite disk built from libstein's fixtures and on its LUKS
 fixtures. Written but not covered by a test: the OS re-read of the table after
 an apply on a real disk, the elevated relaunch landing on a disk source

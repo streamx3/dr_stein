@@ -13,7 +13,6 @@ import DrStein
 Item {
     id: view
     property FileBrowser browser: FileBrowser {}
-    property int copyRow: -1
 
     readonly property bool current: Workspace.view === "browse"
     readonly property bool columnsLayout: Settings.browseLayout === "columns"
@@ -118,9 +117,10 @@ Item {
     FolderDialog {
         id: copyDialog
         title: "Copy out to folder"
-        onAccepted: { if (view.copyRow >= 0) view.browser.copyOut(view.copyRow, selectedFolder); else view.browser.copyAll(selectedFolder) }
+        onAccepted: view.browser.copyPrepared(selectedFolder)
     }
-    function copyEntry(row) { view.copyRow = row; view.focusList(); copyDialog.open() }
+    // What is copied is decided now: the disk may be read again while the dialog is open.
+    function copyEntry(row) { view.browser.prepareCopy(row); view.focusList(); copyDialog.open() }
 
     Connections {
         target: view.browser
@@ -367,6 +367,7 @@ Item {
                         opacity: view.browser.previewLoading && view.browser.previewKind !== "loading" ? 0.4 : 1
                         Behavior on opacity { NumberAnimation { duration: Theme.quick } }
                         Flickable {
+                            id: previewFlick
                             anchors.fill: parent
                             contentWidth: previewText.implicitWidth
                             contentHeight: previewText.implicitHeight
@@ -379,6 +380,11 @@ Item {
                                 readOnly: true
                                 selectByMouse: true
                                 text: view.paneMode === "hex" ? view.browser.previewHex : view.paneMode === "text" ? view.browser.previewText : ""
+                                // Another file, or the other view of this one, starts at its beginning.
+                                onTextChanged: {
+                                    previewFlick.contentX = 0
+                                    previewFlick.contentY = 0
+                                }
                                 font.family: Theme.monoFamily
                                 font.pixelSize: Theme.fontTiny
                                 color: Theme.neutralStep(300)
@@ -440,7 +446,15 @@ Item {
                     Layout.fillWidth: true
                     spacing: 6
                     StButton { text: "Hash"; small: true; focusPolicy: Qt.TabFocus; enabled: view.browser.hasSelection && !JobRunner.running; onClicked: { view.browser.hash(); view.focusList() } }
-                    StButton { text: !view.browser.showHex ? "Hex" : view.browser.previewKind === "image" ? "Image" : "Text"; small: true; focusPolicy: Qt.TabFocus; enabled: view.browser.hasSelection; onClicked: { view.browser.showHex = !view.browser.showHex; view.focusList() } }
+                    // Between a picture or a text and its hex head; the choice stays from file to file.
+                    StButton {
+                        readonly property bool hexShown: view.paneMode === "hex" && view.browser.previewKind !== "hex"
+                        text: !hexShown ? "Hex" : view.browser.previewKind === "image" ? "Image" : "Text"
+                        small: true
+                        focusPolicy: Qt.TabFocus
+                        enabled: view.browser.hasSelection && view.browser.previewHex.length > 0 && (view.browser.previewKind === "image" || view.browser.previewKind === "text")
+                        onClicked: { view.browser.showHex = !hexShown; view.focusList() }
+                    }
                     Item { Layout.fillWidth: true }
                     StButton { text: "Copy out…"; variant: "primary"; small: true; focusPolicy: Qt.TabFocus; enabled: view.browser.hasSelection; onClicked: view.copyEntry(view.browser.selectedIndex) }
                 }

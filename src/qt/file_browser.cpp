@@ -32,10 +32,13 @@ namespace {
 
 constexpr int kDebounceMs = 80;   // a pause this long in keyboard movement asks for the preview
 constexpr int kGraceMs = 150;     // the previous preview stays up this long while the next one loads
-// A request that waits this long behind one that was given up gets a new worker: a decode or a
-// read on failing media cannot be interrupted, and would hold every later preview back.
+// A request that waits this long behind a decode that was given up gets a new worker: a decode
+// cannot be interrupted, and would hold every later preview back. A read that hangs is waited
+// out instead: every reader of the disk would queue behind it, a new one included.
 constexpr int kStallMs = 10000;
-constexpr int kMaxAbandonedWorkers = 3;   // per browser; a disk that swallows that many is left alone
+// Workers alive in the process, the ones left behind in a decode included, beyond which no
+// worker is left behind for another: each holds a reader and what it decodes.
+constexpr std::size_t kMaxPreviewWorkers = 3;
 constexpr std::size_t kHexBytes = 4096;
 constexpr std::size_t kCacheEntries = 12;
 constexpr qsizetype kCacheBytes = 96 * 1024 * 1024;
@@ -392,11 +395,7 @@ FileBrowser::FileBrowser(QObject* parent) : QObject(parent) {
     });
     connect(Settings::instance(), &Settings::previewFilesChanged, this, &FileBrowser::previewSettingChanged);
     connect(Settings::instance(), &Settings::browseLayoutChanged, this, &FileBrowser::layoutChanged);
-    connect(Workspace::instance(), &Workspace::uiLockedChanged, this, [this] {
-        if (!m_previewHeld || previewHeld()) return;
-        sendRequest();
-        Q_EMIT selectionChanged();
-    });
+    connect(Workspace::instance(), &Workspace::uiLockedChanged, this, &FileBrowser::uiLockChanged);
     connect(Workspace::instance(), &Workspace::selectionChanged, this, [this] {
         if (Workspace::instance()->selectedPath() != m_path || !m_browser) reload();
     });
@@ -440,6 +439,7 @@ void FileBrowser::openSubvolume(const QString& volume, const QString& snapshot) 
     m_columns.clear();
     m_listings.clear();
     m_browser.reset();
+    ++m_generation;
     m_reason.clear();
     m_subvolume = volume;
     m_snapshot = snapshot;
@@ -618,6 +618,8 @@ void FileBrowser::refreshPreview(PreviewStart start) {
         return;
     }
     if (start != PreviewStart::Forced && !previewEnabled()) {
+        // A file previewed once with previews off leaves no reader behind once the selection moves on.
+        if (m_loader) dropLoader();
         PreviewContent off;
         off.kind = "off";
         return settlePreview(off);
@@ -627,7 +629,7 @@ void FileBrowser::refreshPreview(PreviewStart start) {
     m_debounce.stop();
     cancelTicket();
     if (std::exchange(m_previewHeld, false)) showLoading();
-    m_request = PreviewRequest{key, e->entry.inode, e->stat};
+    m_request = PreviewRequest{key, core::PreviewTarget{m_browser->pathTo(e->entry.name), e->stat}};
     if (!m_previewLoading) {
         m_previewLoading = true;
         m_grace.start();
@@ -670,7 +672,6 @@ void FileBrowser::cancelTicket() {
     if (!m_ticket) return;
     if (m_loader) m_loader->cancel();
     m_ticket = 0;
-    m_workerMayLag = true;
 }
 
 void FileBrowser::sendRequest() {
@@ -688,7 +689,7 @@ void FileBrowser::sendRequest() {
         return settlePreview(failed);
     }
     cancelTicket();
-    m_ticket = m_loader->request(m_request->inode, m_request->stat);
+    m_ticket = m_loader->request(m_request->target);
     m_stall.start();
 }
 
@@ -710,8 +711,7 @@ bool FileBrowser::ensureLoader() {
         return false;
     }
     const quint64 epoch = ++m_epoch;
-    m_workerMayLag = false;
-    m_loader = std::make_unique<core::PreviewLoader>(std::move(*reader), core::PreviewLimits{}, &renderPreview, [this, epoch](core::PreviewResult result) {
+    auto deliver = [this, epoch](core::PreviewResult result) {
         // On the worker, under the loader's lock: `this` is only the address the result is posted
         // to, which is safe because nothing is delivered once ~PreviewLoader has returned. The
         // file's bytes end here; what is shown crosses over.
@@ -721,7 +721,14 @@ bool FileBrowser::ensureLoader() {
         result = {};
         QMetaObject::invokeMethod(this, [this, epoch, ticket, content = std::move(content), failure = std::move(failure)] { previewArrived(epoch, ticket, content, failure); },
                                   Qt::QueuedConnection);
-    });
+    };
+    try {
+        m_loader = std::make_unique<core::PreviewLoader>(std::move(*reader), core::PreviewLimits{}, &renderPreview, std::move(deliver));
+    } catch (const std::exception& e) {
+        // No thread to be had: as if the source could not be read, and not retried per file.
+        m_loaderError = QString::fromLocal8Bit(e.what());
+        return false;
+    }
     return true;
 }
 
@@ -735,8 +742,6 @@ void FileBrowser::dropLoader() {
     m_request.reset();
     m_previewLoading = false;
     m_previewHeld = false;
-    m_workerMayLag = false;
-    m_abandonedWorkers = 0;
     m_loaderError.clear();
     m_cache.clear();
 }
@@ -744,7 +749,6 @@ void FileBrowser::dropLoader() {
 void FileBrowser::previewArrived(quint64 epoch, quint64 ticket, std::shared_ptr<const PreviewContent> content, const QString& failure) {
     if (epoch != m_epoch || ticket != m_ticket) return;
     m_ticket = 0;
-    m_workerMayLag = false;
     if (!content) {
         auto failed = std::make_shared<PreviewContent>();
         failed->kind = "unreadable";
@@ -759,9 +763,14 @@ void FileBrowser::previewArrived(quint64 epoch, quint64 ticket, std::shared_ptr<
 }
 
 void FileBrowser::requestStalled() {
-    if (!m_ticket || !m_workerMayLag || m_abandonedWorkers >= kMaxAbandonedWorkers) return;
+    if (!m_ticket || !m_loader) return;
+    // Only a decode of a file given up for this one is left behind. A read that hangs would hold
+    // up a new reader on the same disk too (opened right here, on this thread), and this
+    // request's own decode would only start over.
+    const core::PreviewActivity busy = m_loader->activity();
+    if (busy.phase != core::PreviewActivity::Phase::Transforming || busy.ticket == m_ticket) return;
+    if (core::PreviewLoader::workersAlive() >= kMaxPreviewWorkers) return;
     // The old worker is left to finish what it is in; it owns its reader and delivers nothing more.
-    ++m_abandonedWorkers;
     m_loader.reset();
     ++m_epoch;
     m_ticket = 0;
@@ -773,6 +782,24 @@ void FileBrowser::previewSettingChanged() {
     // Off: the second reader goes too, so nothing of this app reads file content behind the user's back.
     if (!previewEnabled()) dropLoader();
     refreshPreview(PreviewStart::Now);
+    // On: "off" is no previous preview to keep up while the file is read.
+    if (m_previewLoading && m_previewKind == "off") showLoading();
+    Q_EMIT selectionChanged();
+}
+
+void FileBrowser::uiLockChanged() {
+    if (Workspace::instance()->uiLocked()) {
+        // The job may write under the reader: what is being read now waits for it like the rest.
+        if (!m_ticket && !m_debounce.isActive()) return;
+        m_debounce.stop();
+        cancelTicket();
+        m_previewHeld = true;
+        showLoading("waiting for the running job");
+        Q_EMIT selectionChanged();
+        return;
+    }
+    if (!m_previewHeld || previewHeld()) return;
+    sendRequest();
     Q_EMIT selectionChanged();
 }
 
@@ -805,8 +832,9 @@ void FileBrowser::rememberPreview(const PreviewKey& key, std::shared_ptr<const P
 void FileBrowser::activate(int row) {
     if (!m_browser || row < 0 || row >= m_entries.rowCount() || m_busy) return;
     const auto& e = m_entries.entries()[static_cast<std::size_t>(row)];
-    if (e.isDir()) enter(qs(e.entry.name));
-    else select(row);
+    if (!e.isDir()) return select(row);
+    const stein::fs::DirEntry picked = e.entry;   // the listing it is in goes when the folder opens
+    enterDirectory(picked.name, &picked.inode);
 }
 
 void FileBrowser::selectRow(int row, PreviewStart start, bool previewStale) {
@@ -855,7 +883,9 @@ void FileBrowser::selectLast() {
 
 void FileBrowser::activateSelected() {
     const core::Entry* e = selectedEntry();
-    if (e && e->isDir()) enter(qs(e->entry.name));
+    if (!m_browser || m_busy || !e || !e->isDir()) return;
+    const stein::fs::DirEntry picked = e->entry;
+    enterDirectory(picked.name, &picked.inode);
 }
 
 void FileBrowser::enter(const QString& name) {
@@ -863,8 +893,8 @@ void FileBrowser::enter(const QString& name) {
     enterDirectory(ss(name));
 }
 
-bool FileBrowser::enterDirectory(const std::string& name, bool preview) {
-    if (auto r = m_browser->enter(name); !r) {
+bool FileBrowser::enterDirectory(const std::string& name, const stein::fs::Inode* listed, bool preview) {
+    if (auto r = listed ? m_browser->enter(name, *listed) : m_browser->enter(name); !r) {
         Workspace::instance()->reportError(r.error());
         return false;
     }
@@ -875,7 +905,7 @@ bool FileBrowser::enterDirectory(const std::string& name, bool preview) {
 void FileBrowser::enterSelectedAndSelectFirst() {
     const core::Entry* e = selectedEntry();
     if (!m_browser || m_busy || !e || !e->isDir()) return;
-    if (const std::string name = e->entry.name; !enterDirectory(name)) return;
+    if (const stein::fs::DirEntry picked = e->entry; !enterDirectory(picked.name, &picked.inode)) return;
     if (m_entries.rowCount() > 0) selectRow(0, PreviewStart::Debounced);
 }
 
@@ -956,7 +986,8 @@ ColumnsModel::Column FileBrowser::columnFor(const core::ColumnPlan& plan, const 
         } else {
             c.error = qs(core::present(listing.error()).message);
         }
-        const bool sameRow = before && !before->plan.current && before->plan.selectName == plan.selectName;
+        // The row it showed holds only for the very listing it showed it in: not after a retry.
+        const bool sameRow = before && !before->plan.current && before->listing == c.listing && before->plan.selectName == plan.selectName;
         if (plan.peek || !c.listing) c.selectedRow = -1;
         else c.selectedRow = sameRow ? before->selectedRow : core::rowOfName(*c.listing, plan.selectName, m_browser->caseSensitive());
     }
@@ -985,7 +1016,7 @@ bool FileBrowser::clickColumn(int column, int row) {
     }
     case core::ColumnClick::EnterThenSelect:
         // The folder the peek shows: within the keyboard's pause the selection may have moved on.
-        if (!enterDirectory(plans[at].title, false)) return false;
+        if (!enterDirectory(plans[at].title, &plans[at].dir, false)) return false;
         stepped = true;
         break;
     }
@@ -1041,45 +1072,55 @@ void FileBrowser::hash() {
     if (!started) setBusy(false);
 }
 
+std::optional<FileBrowser::CopyTarget> FileBrowser::copyTarget(int row) const {
+    if (!m_browser) return std::nullopt;
+    if (row < 0) {
+        const std::string name = m_browser->breadcrumbs().size() > 1 ? m_browser->breadcrumbs().back().name : ss(title());
+        return CopyTarget{m_generation, m_browser->current(), name};
+    }
+    if (row >= m_entries.rowCount()) return std::nullopt;
+    const auto& e = m_entries.entries()[static_cast<std::size_t>(row)];
+    return CopyTarget{m_generation, e.entry.inode, e.entry.name};
+}
+
 void FileBrowser::copyOut(int row, const QUrl& directory) {
-    if (!m_browser || row < 0 || row >= m_entries.rowCount() || m_busy) return;
-    const auto e = m_entries.entries()[static_cast<std::size_t>(row)];
-    core::Browser* browser = &*m_browser;
-    const std::filesystem::path dest = pathOf(directory);
-    setBusy(true);
-    const bool started = JobRunner::instance()->start(
-        "Copying out " + qs(e.entry.name), "browse",
-        [browser, e, dest](stein::Progress& progress, stein::Report& report) -> stein::Expected<void> {
-            report.start();
-            report.addDetail("destination", (dest / e.entry.name).string());
-            auto stats = core::copyOut(browser->reader(), e.entry.inode, e.entry.name, dest, progress);
-            if (!stats) {
-                report.addLine(stats.error().toString());
-                report.finish(stein::ReportStatus::Error);
-                return stein::fail(stats.error());
-            }
-            report.addDetail("copied", core::copyStatsText(*stats));
-            for (const auto& w : stats->warnings) report.addLine("skipped " + w);
-            report.finish(stats->warnings.empty() ? stein::ReportStatus::Success : stein::ReportStatus::Warning);
-            JobRunner::instance()->setSummary(qs(core::copyStatsText(*stats)));
-            return {};
-        },
-        [this](bool, const stein::Error&) { setBusy(false); });
-    if (!started) setBusy(false);
+    if (row < 0 || m_busy) return;
+    if (const auto target = copyTarget(row)) startCopy(target->inode, target->name, directory);
 }
 
 void FileBrowser::copyAll(const QUrl& directory) {
+    if (m_busy) return;
+    if (const auto target = copyTarget(-1)) startCopy(target->inode, target->name, directory);
+}
+
+void FileBrowser::prepareCopy(int row) { m_copyTarget = copyTarget(row); }
+
+void FileBrowser::copyPrepared(const QUrl& directory) {
+    if (!m_copyTarget || m_busy) return;
+    const CopyTarget target = *std::exchange(m_copyTarget, std::nullopt);
+    if (!m_browser || target.generation != m_generation) {
+        QVariantMap e;
+        e["title"] = "Nothing copied";
+        e["message"] = "The disk was read again while the folder was being chosen: “" + qs(target.name) + "” may not be what it was.";
+        e["hint"] = "Select it again, then Copy out.";
+        e["severity"] = "warning";
+        Q_EMIT Workspace::instance()->error(e);
+        return;
+    }
+    startCopy(target.inode, target.name, directory);
+}
+
+void FileBrowser::startCopy(const stein::fs::Inode& source, const std::string& name, const QUrl& directory) {
     if (!m_browser || m_busy) return;
     core::Browser* browser = &*m_browser;
-    const stein::fs::Inode dir = m_browser->current();
     const std::filesystem::path dest = pathOf(directory);
-    const std::string name = m_browser->breadcrumbs().size() > 1 ? m_browser->breadcrumbs().back().name : ss(title());
     setBusy(true);
     const bool started = JobRunner::instance()->start(
-        "Copying " + qs(name) + " out", "browse",
-        [browser, dir, dest, name](stein::Progress& progress, stein::Report& report) -> stein::Expected<void> {
+        "Copying out " + qs(name), "browse",
+        [browser, source, name, dest](stein::Progress& progress, stein::Report& report) -> stein::Expected<void> {
             report.start();
-            auto stats = core::copyOut(browser->reader(), dir, name, dest, progress);
+            report.addDetail("destination", (dest / name).string());
+            auto stats = core::copyOut(browser->reader(), source, name, dest, progress);
             if (!stats) {
                 report.addLine(stats.error().toString());
                 report.finish(stein::ReportStatus::Error);
