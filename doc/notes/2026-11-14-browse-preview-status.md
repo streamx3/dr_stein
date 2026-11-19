@@ -211,6 +211,10 @@ this note.
 
 ## 7. Not done, in order
 
+The live list is now `doc/BACKLOG.md` (2026-11-19). Since then: the owner
+checked the keys in both layouts (item 1: the pointer and drag-out are
+left), and said the SD card's pictures are not private (item 4).
+
 1. **Real key presses and a real pointer** in an active window, by hand,
    in both layouts; the owner will do this. In the list: Up/Down through
    `photos/`, hold Down in `many/`, Enter into a folder, Backspace out,
