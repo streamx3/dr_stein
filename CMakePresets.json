@@ -13,13 +13,18 @@
     { "name": "release", "inherits": "base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
     { "name": "core",    "inherits": "debug", "description": "Core library and its tests only, no Qt",
       "cacheVariables": { "DRSTEIN_BUILD_APP": "OFF" } },
-    { "name": "ci",      "inherits": "debug", "cacheVariables": { "DRSTEIN_WERROR": "ON" } }
+    { "name": "ci",      "inherits": "debug", "cacheVariables": { "DRSTEIN_WERROR": "ON" } },
+    { "name": "package", "inherits": "release",
+      "description": "Linux .deb, made by tools/package-deb.sh: Release, launcher link, .desktop file, icons, manual page and licences under /usr",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": { "DRSTEIN_DESKTOP_PREFIX": "/usr" } }
   ],
   "buildPresets": [
     { "name": "debug",   "configurePreset": "debug" },
     { "name": "release", "configurePreset": "release" },
     { "name": "core",    "configurePreset": "core" },
-    { "name": "ci",      "configurePreset": "ci" }
+    { "name": "ci",      "configurePreset": "ci" },
+    { "name": "package", "configurePreset": "package" }
   ],
   "testPresets": [
     { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },

@@ -15,6 +15,13 @@ option(DRSTEIN_BUILD_TESTS "Build the core unit tests" ON)
 option(DRSTEIN_BUILD_APP   "Build the Qt application (needs Qt 6.7+)" ON)
 option(DRSTEIN_WERROR      "Treat warnings as errors" OFF)
 
+# Linux installs one self-contained tree with its own Qt, /opt/dr-stein by default, plus the
+# launcher link, .desktop file and icons (cmake/DrSteinLinuxInstall.cmake); `uninstall` undoes it.
+# Before libstein and the app, which include GNUInstallDirs.
+if(LINUX AND DRSTEIN_BUILD_APP)
+  include(DrSteinLinuxInstall)
+endif()
+
 # ---------------------------------------------------------------------------
 # libstein (submodule). Its own tests and CLI are off here; build them from the
 # submodule directory when working on the library.
@@ -53,4 +60,14 @@ endif()
 add_subdirectory(src/core)
 if(DRSTEIN_BUILD_APP)
   add_subdirectory(src/app)   # the Qt facades in src/qt are part of the app's QML module
+endif()
+
+# The .deb (cmake/DrSteinPackaging.cmake; tools/package-deb.sh builds it), only from a build that
+# puts the desktop files under /usr (the "package" preset): a Debian package must not ship
+# /usr/local. Then the last install rule, which records the directories the install created.
+if(LINUX AND DRSTEIN_BUILD_APP)
+  if(DRSTEIN_DESKTOP_PREFIX_PATH STREQUAL "/usr")
+    include(DrSteinPackaging)
+  endif()
+  drstein_install_finish()
 endif()

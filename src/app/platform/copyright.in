@@ -1,0 +1,115 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Dr Stein
+Upstream-Contact: https://github.com/streamx3/dr_stein/issues
+Source: https://github.com/streamx3/dr_stein
+Comment: Generated from src/app/platform/copyright.in by the build. Dr Stein is
+ installed in /@DRSTEIN_COPYRIGHT_PREFIX@ together with the Qt @DRSTEIN_QT_VERSION@ it was built
+ with (libraries, plugins and QML modules) and the ICU libraries that Qt uses,
+ unmodified, as the Qt online installer ships them.
+
+Files: *
+Copyright: 2026 Andrii Shelestov
+License: Expat
+
+Files: @DRSTEIN_COPYRIGHT_PREFIX@/lib/libstein*
+Copyright: 2026 Andrii Shelestov
+License: Expat
+Comment: libstein, the disk and file-system library behind Dr Stein
+ (https://github.com/streamx3/libstein).
+
+Files: @DRSTEIN_COPYRIGHT_PREFIX@/bin/dr-stein
+Copyright: 2026 Andrii Shelestov
+           Microsoft Corporation
+License: Expat and CC-BY-4.0
+Comment: The program is under the Expat licence. The four window caption-button
+ glyphs built into it are Microsoft's Codicons
+ (https://github.com/microsoft/vscode-codicons), unmodified, under CC-BY-4.0.
+
+Files: @DRSTEIN_COPYRIGHT_PREFIX@/lib/libQt6*
+       @DRSTEIN_COPYRIGHT_PREFIX@/plugins/*
+       @DRSTEIN_COPYRIGHT_PREFIX@/qml/*
+       @DRSTEIN_COPYRIGHT_PREFIX@/bin/qt.conf
+Copyright: The Qt Company Ltd. and other contributors
+License: LGPL-3 or GPL-2 or GPL-3
+Comment: Qt @DRSTEIN_QT_VERSION@ (https://www.qt.io), used under the LGPL-3, unmodified.
+ Its complete source code is published at
+ https://download.qt.io/official_releases/qt/@DRSTEIN_QT_SERIES@/@DRSTEIN_QT_VERSION@/
+ .
+ Qt contains third-party code under other licences. Qt's documentation
+ names each piece with its copyright notices and the full text of its
+ licence; those pages are copied into
+ @DRSTEIN_DOC_DIR@/qt-third-party.txt.gz
+
+Files: @DRSTEIN_COPYRIGHT_PREFIX@/lib/libicu*
+Copyright: Unicode, Inc. and others
+License: ICU
+Comment: ICU@DRSTEIN_ICU_VERSION@ (https://icu.unicode.org), bundled with Qt by the Qt
+ installer. Its LICENSE file also covers the third-party data built into ICU
+ (word-break dictionaries, the time zone database and others); it is part of
+ every ICU release (https://github.com/unicode-org/icu).
+
+License: Expat
+@DRSTEIN_LICENSE_EXPAT@
+
+License: CC-BY-4.0
+@DRSTEIN_LICENSE_CC_BY_4@
+
+License: LGPL-3
+ This library is free software: you can redistribute it and/or modify it
+ under the terms of the GNU Lesser General Public License version 3 as
+ published by the Free Software Foundation.
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public
+ License version 3 can be found in "/usr/share/common-licenses/LGPL-3", and
+ that of the GNU General Public License version 3, which it supplements, in
+ "/usr/share/common-licenses/GPL-3".
+
+License: GPL-2
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License version 2 as published by
+ the Free Software Foundation.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 2 can be found in "/usr/share/common-licenses/GPL-2".
+
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License version 3 as published by
+ the Free Software Foundation.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: ICU
+ COPYRIGHT AND PERMISSION NOTICE (ICU 58 and later)
+ .
+ Distributed under the Terms of Use in https://www.unicode.org/copyright.html.
+ .
+ Permission is hereby granted, free of charge, to any person obtaining
+ a copy of the Unicode data files and any associated documentation
+ (the "Data Files") or Unicode software and any associated documentation
+ (the "Software") to deal in the Data Files or Software
+ without restriction, including without limitation the rights to use,
+ copy, modify, merge, publish, distribute, and/or sell copies of
+ the Data Files or Software, and to permit persons to whom the Data Files
+ or Software are furnished to do so, provided that either
+ (a) this copyright and permission notice appear with all copies
+ of the Data Files or Software, or
+ (b) this copyright and permission notice appear in associated
+ Documentation.
+ .
+ THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF
+ ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+ WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ NONINFRINGEMENT OF THIRD PARTY RIGHTS.
+ IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS
+ NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL
+ DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+ DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+ PERFORMANCE OF THE DATA FILES OR SOFTWARE.
+ .
+ Except as contained in this notice, the name of a copyright holder
+ shall not be used in advertising or otherwise to promote the sale,
+ use or other dealings in these Data Files or Software without prior
+ written authorization of the copyright holder.

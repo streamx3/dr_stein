@@ -718,6 +718,9 @@ privileges) and, later, by `qmltestrunner` smoke tests of the models.
 
 1. **Name.** The mockup brands the window "Stein"; the repo is dr_stein.
    This document uses "Dr Stein" for the app and `dr_stein` for the binary.
+   (Since 2026-11-19 the binary is `dr-stein` on Linux, the name on PATH
+   and in the `.desktop` file, and "Dr Stein" in the macOS bundle and on
+   Windows; `05-linux-bringup.md`.)
 2. **One-button app.** The Profiles view covers the dr_stein use case
    inside the full tool. Is a separate minimal binary (profiles only) still
    wanted later? The core is split so that it costs little.
@@ -913,7 +916,7 @@ because a decode cannot be interrupted.
 |---|---|
 | Qt alone, on every platform | PNG, JPEG, GIF (first frame), BMP, ICO and CUR (the largest entry), PBM/PGM/PPM, XPM, SVG |
 | ImageIO adds, on macOS | TIFF, WebP, HEIC, AVIF, JPEG 2000, ICNS; PNG, BMP and the like from 8192 × 8192 pixels up |
-| Linux and Windows | what the installed Qt image plugins read: Qt's Image Formats add-on brings TIFF, WebP and ICNS; HEIC has no decoder there, and neither have AVIF and JPEG 2000 in Qt's own builds; a picture other than a JPEG from 8192 × 8192 pixels up is "too large to decode" |
+| Linux and Windows | what the installed Qt image plugins read: Qt's Image Formats add-on brings TIFF, WebP and ICNS (the Linux install carries the image plugins of the Qt kit it was built with; the 6.12.0 kit has the add-on); HEIC has no decoder there, and neither have AVIF and JPEG 2000 in Qt's own builds; a picture other than a JPEG from 8192 × 8192 pixels up is "too large to decode" |
 
 **What the card shows.** `PreviewSurface` lays a picture with an alpha
 channel on a checkerboard of 8 px squares in two neutral steps of the theme

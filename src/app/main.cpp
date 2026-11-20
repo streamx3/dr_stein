@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Dr Stein: the Qt Quick front-end of libstein.
 //
-//   dr_stein [image files...]
+//   dr-stein [image files...]        ("Dr Stein" on macOS and Windows)
 //
 // Environment, for scripted runs and screenshots:
 //   DRSTEIN_VIEW=topology|hex|browse|image|profiles|tools|partitions   start on that view
@@ -31,15 +31,63 @@
 #include <cstdlib>
 #include <memory>
 
+#if defined(Q_OS_LINUX)
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <string>
+#include <system_error>
+
+namespace {
+
+// The installed tree (/opt/dr-stein, cmake/DrSteinLinuxInstall.cmake) carries the Qt it was built
+// with; the bin/qt.conf next to the binary marks it. Variables meant for another Qt, such as the
+// distribution's, must not reach that one: its plugins and QML modules belong to a different Qt
+// version and crash it or stop the window loading. The tree has one platform plugin, xcb (on a
+// Wayland session the app runs through XWayland), so a QT_QPA_PLATFORM naming another one gets
+// xcb to fall back to instead of an abort. Returns false when the app cannot start at all.
+bool prepareBundledQt(int argc, char* argv[]) {
+    std::error_code ec;
+    const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec || !std::filesystem::exists(exe.parent_path() / "qt.conf", ec)) return true;   // a build tree
+    for (const char* name : {"QT_PLUGIN_PATH", "QML_IMPORT_PATH", "QML2_IMPORT_PATH"}) unsetenv(name);
+    const char* requested = std::getenv("QT_QPA_PLATFORM");
+    std::string platform = requested ? requested : "";
+    if (platform.find("xcb") == std::string::npos) {
+        platform = platform.empty() ? std::string("xcb") : platform + ";xcb";
+        setenv("QT_QPA_PLATFORM", platform.c_str(), 1);
+    }
+    bool displayArgument = false;
+    for (int i = 1; i < argc; ++i)
+        if (std::strcmp(argv[i], "-display") == 0 || std::strcmp(argv[i], "--display") == 0) displayArgument = true;
+    if (const char* display = std::getenv("DISPLAY"); (!display || !*display) && !displayArgument) {
+        std::fputs("dr-stein: no X display (DISPLAY is not set). Dr Stein runs on X11, and on Wayland through XWayland.\n", stderr);
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+#endif
+
 int main(int argc, char* argv[]) {
+#if defined(Q_OS_LINUX)
+    if (!prepareBundledQt(argc, argv)) return 1;
+#endif
     QGuiApplication::setApplicationName("Dr Stein");
     QGuiApplication::setApplicationDisplayName("Dr Stein");
     QGuiApplication::setOrganizationName("dr_stein");
     QGuiApplication::setOrganizationDomain("dr-stein.local");
     QGuiApplication::setApplicationVersion(DRSTEIN_VERSION_STRING);
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
+    // The window's application id (Wayland app_id, _GTK_APPLICATION_ID, _KDE_NET_WM_DESKTOP_FILE):
+    // the installed dr-stein.desktop, so the shell ties the window to the launcher and its icon.
+    QGuiApplication::setDesktopFileName("dr-stein");
+#endif
     QGuiApplication app(argc, argv);
     QGuiApplication::setWindowIcon(drstein::ui::appIcon());
-    // Basic has no look of its own: every control is drawn by our components from Theme.
+    // Basic has no look of its own: every control is drawn by our components from Theme. The
+    // Linux install ships no other style (cmake/DrSteinLinuxInstall.cmake, DRSTEIN_QT_STYLE).
     QQuickStyle::setStyle("Basic");
 
     // On the heap: it goes before the preview workers are waited for (the end of main).

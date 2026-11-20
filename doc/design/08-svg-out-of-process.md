@@ -86,7 +86,10 @@ preview worker (thread)                          drstein-svg-render (process, on
 
 1. **The binary.** A separate small executable `drstein-svg-render`, linked
    to QtCore, QtGui and QtSvg only and placed next to the app binary (inside
-   `Dr Stein.app/Contents/MacOS/` on macOS). None of the app's own start-up
+   `Dr Stein.app/Contents/MacOS/` on macOS, in `/opt/dr-stein/bin/` on
+   Linux). On Linux the app has to look for it through `/proc/self/exe`: started
+   through the `/usr/bin/dr-stein` link, Qt's `applicationDirPath()` is
+   `/usr/bin` (`05-linux-bringup.md`). None of the app's own start-up
    runs on hostile input. If it is missing, an SVG is text with a note. The
    alternative, a `--render-svg` mode of the app binary, needs nothing placed
    or deployed, and started as fast in the measurement below.

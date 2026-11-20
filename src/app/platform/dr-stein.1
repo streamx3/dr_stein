@@ -1,0 +1,65 @@
+.TH DR-STEIN 1 2026-11-20 "Dr Stein" "User Commands"
+.SH NAME
+dr-stein \- disk and disk-image multitool
+.SH SYNOPSIS
+.B dr-stein
+.RI [ image ...]
+.SH DESCRIPTION
+.B dr-stein
+starts Dr Stein, a graphical tool that shows how a disk or a disk image is
+laid out (partition tables, LUKS containers, LVM volumes, file systems),
+browses and previews the files inside without mounting them, images disks
+and partitions and restores them, edits and repairs partition tables, and
+runs surface scans and fake-flash capacity tests.
+.PP
+Everything opens read-only; writes need an explicit confirmation.
+Image files need no privileges. Real disks need administrator rights, which
+the app asks for through
+.BR pkexec (1)
+when it is relaunched from its top bar.
+.PP
+Each
+.I image
+named on the command line is added to the sidebar and the last one is
+opened. The app reads raw and split raw images, qcow2, VHD, VHDX, VMDK, VDI,
+E01, DMG and its own .stein images.
+.SH ENVIRONMENT
+.TP
+.B DRSTEIN_VIEW
+The view to start on:
+.BR topology ", " hex ", " browse ", " image ", " profiles ", " tools " or " partitions .
+.TP
+.B DRSTEIN_SCHEME
+.BR dark " or " light
+for this run.
+.TP
+.B DRSTEIN_PREVIEW
+.BR 0 " or " 1 :
+file previews in Browse off or on for this run; the stored setting is left
+alone.
+.TP
+.BR DRSTEIN_SCREENSHOT ", " DRSTEIN_DELAY ", " DRSTEIN_SCRIPT
+Scripted runs: save the window as a PNG file after DRSTEIN_DELAY milliseconds
+(2500 by default) and quit; evaluate JavaScript in the main window one second
+after the start.
+.PP
+Dr Stein carries its own Qt in
+.IR /opt/dr-stein .
+It ignores
+.BR QT_PLUGIN_PATH ", " QML_IMPORT_PATH " and " QML2_IMPORT_PATH ,
+which point at another Qt, and it runs on X11 (on Wayland through XWayland)
+whatever
+.B QT_QPA_PLATFORM
+asks for.
+.SH FILES
+.TP
+.I ~/.config/dr_stein/
+Settings and the list of recent images; by default the profiles folder is
+under it as well.
+.TP
+.I /usr/share/doc/dr-stein/copyright
+The licences of Dr Stein and of the Qt it carries.
+.SH SEE ALSO
+.BR pkexec (1)
+.PP
+https://github.com/streamx3/dr_stein

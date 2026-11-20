@@ -464,7 +464,7 @@ rejects a busy logical index, so a logical inserted in front is numbered in the
 preview rows only; the `stein repair` help still says "stale FAT copies"; the
 Linux hands-on check of the "Partition table written" toast).
 
-### Fixtures to generate on the Linux laptop (192.168.1.98)
+### Fixtures to generate on the Linux laptop
 
 All with cryptsetup ≥ 2.7, the passphrase in a key file (`printf '%s' 'luks
 test passphrase' > pw.txt`, `--key-file pw.txt`), then `cryptsetup luksDump

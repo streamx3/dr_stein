@@ -96,7 +96,8 @@ qt_add_resources(dr_stein codicons PREFIX "/codicons" BASE icons/codicons FILES
 
 # The application icon (icons/app/README.md): the SVGs travel as resources for the window
 # icon, the .icns is the bundle icon on macOS, the .ico comes in through the .rc on Windows,
-# and Linux installs the SVGs into the hicolor theme next to a .desktop file.
+# and Linux installs the SVGs into the hicolor theme next to a .desktop file, under
+# DRSTEIN_DESKTOP_PREFIX (cmake/DrSteinLinuxInstall.cmake).
 qt_add_resources(dr_stein appicon PREFIX "/icons" BASE icons/app FILES
   icons/app/dr-stein.svg icons/app/dr-stein-small.svg)
 if(APPLE)
@@ -107,9 +108,14 @@ elseif(WIN32)
   target_sources(dr_stein PRIVATE platform/dr_stein.rc)
 elseif(UNIX)
   include(GNUInstallDirs)
-  install(FILES icons/app/dr-stein.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
-  install(FILES icons/app/dr-stein-symbolic.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/symbolic/apps)
-  install(FILES platform/dr-stein.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+  if(LINUX)
+    set(drstein_datadir "${DRSTEIN_DESKTOP_DATADIR}")
+  else()
+    set(drstein_datadir "${CMAKE_INSTALL_DATADIR}")
+  endif()
+  install(FILES icons/app/dr-stein.svg DESTINATION "${drstein_datadir}/icons/hicolor/scalable/apps")
+  install(FILES icons/app/dr-stein-symbolic.svg DESTINATION "${drstein_datadir}/icons/hicolor/symbolic/apps")
+  install(FILES platform/dr-stein.desktop DESTINATION "${drstein_datadir}/applications")
 endif()
 
 qt_add_qml_module(dr_stein
@@ -128,8 +134,15 @@ target_compile_definitions(dr_stein PRIVATE QT_NO_KEYWORDS)
 target_link_libraries(dr_stein PRIVATE
   drstein::core drstein_warnings
   Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Svg)
+# The bundle and the .exe are "Dr Stein"; on Linux (any Unix but macOS) the binary is dr-stein,
+# the name the .desktop file runs and the one on PATH.
+if(UNIX AND NOT APPLE)
+  set(drstein_output_name dr-stein)
+else()
+  set(drstein_output_name "Dr Stein")
+endif()
 set_target_properties(dr_stein PROPERTIES
-  OUTPUT_NAME "Dr Stein"
+  OUTPUT_NAME "${drstein_output_name}"
   MACOSX_BUNDLE_BUNDLE_NAME "Dr Stein"
   MACOSX_BUNDLE_GUI_IDENTIFIER "local.dr-stein.app"
   MACOSX_BUNDLE_ICON_FILE dr-stein.icns
@@ -138,3 +151,8 @@ set_target_properties(dr_stein PROPERTIES
   WIN32_EXECUTABLE TRUE)
 
 install(TARGETS dr_stein BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(LINUX)
+  # Next to the binary: libstein's libraries, Qt's libraries, plugins and QML modules, qt.conf;
+  # the link on PATH, the manual page and the licences (cmake/DrSteinLinuxInstall.cmake).
+  drstein_install_linux_runtime(dr_stein)
+endif()
