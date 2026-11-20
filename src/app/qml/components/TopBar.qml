@@ -8,7 +8,7 @@ import DrStein
 
 Item {
     id: bar
-    property Window window: null
+    property Window hostWindow: null
     property bool customChrome: false
     signal openSettings()
     signal openMounts()
@@ -18,14 +18,14 @@ Item {
 
     // The whole bar moves the window; children (tabs, buttons) take their clicks first.
     DragHandler {
-        enabled: bar.customChrome && bar.window !== null
+        enabled: bar.customChrome && bar.hostWindow !== null
         target: null
-        onActiveChanged: if (active) bar.window.startSystemMove()
+        onActiveChanged: if (active) bar.hostWindow.startSystemMove()
     }
     TapHandler {
-        enabled: bar.customChrome && bar.window !== null && Qt.platform.os !== "osx"   // AppKit zooms on its own
+        enabled: bar.customChrome && bar.hostWindow !== null && Qt.platform.os !== "osx"   // AppKit zooms on its own
         gesturePolicy: TapHandler.DragThreshold
-        onDoubleTapped: if (bar.window.visibility === Window.Maximized) bar.window.showNormal(); else bar.window.showMaximized()
+        onDoubleTapped: if (bar.hostWindow.visibility === Window.Maximized) bar.hostWindow.showNormal(); else bar.hostWindow.showMaximized()
     }
     readonly property var views: [
         { id: "topology", label: "Topology" }, { id: "hex", label: "Hex" }, { id: "browse", label: "Browse" },
@@ -110,7 +110,7 @@ Item {
         // Linux: the buttons span the bar like VS Code's; Windows: chips at the top like the system's.
         WindowControls {
             visible: bar.ownButtons
-            window: bar.window
+            window: bar.hostWindow
             barHeight: bar.height
             Layout.leftMargin: Theme.space3
             Layout.alignment: vscode ? Qt.AlignVCenter : Qt.AlignTop

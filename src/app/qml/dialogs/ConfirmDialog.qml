@@ -24,7 +24,7 @@ StDialog {
         implicitHeight: grid.implicitHeight + 24
         radius: Theme.radiusMd
         color: Theme.sunken
-        KeyValueGrid { id: grid; anchors.fill: parent; anchors.margins: 12; rows: dialog.facts; fontSize: Theme.fontSize }
+        KeyValueGrid { id: grid; anchors.fill: parent; anchors.margins: 12; pairs: dialog.facts; fontSize: Theme.fontSize }
     }
     Text { Layout.fillWidth: true; visible: dialog.expectedText.length > 0; text: "Type the device name to confirm."; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; color: Theme.textSoft }
     StTextField { id: typed; Layout.fillWidth: true; visible: dialog.expectedText.length > 0; mono: true; placeholderText: dialog.expectedText; onAccepted: dialog.go() }

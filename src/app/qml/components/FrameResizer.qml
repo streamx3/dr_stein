@@ -7,10 +7,10 @@ import DrStein
 
 Item {
     id: resizer
-    required property Window window
+    required property Window hostWindow
     property int band: 6
     anchors.fill: parent
-    readonly property bool active: window.visibility === Window.Windowed
+    readonly property bool active: resizer.hostWindow.visibility === Window.Windowed
 
     component Edge: Item {
         property int edges: 0
@@ -19,7 +19,7 @@ Item {
         DragHandler {
             target: null
             grabPermissions: PointerHandler.TakeOverForbidden
-            onActiveChanged: if (active) resizer.window.startSystemResize(parent.edges)
+            onActiveChanged: if (active) resizer.hostWindow.startSystemResize(parent.edges)
         }
         HoverHandler { cursorShape: parent.cursor }
     }

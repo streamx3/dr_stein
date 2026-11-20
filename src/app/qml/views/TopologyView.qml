@@ -271,7 +271,7 @@ Item {
                                 }
                             }
                         }
-                        KeyValueGrid { Layout.fillWidth: true; rows: Workspace.details.rows }
+                        KeyValueGrid { Layout.fillWidth: true; pairs: Workspace.details.rows }
                         Repeater {
                             model: Workspace.details.subvolumes
                             delegate: Text {

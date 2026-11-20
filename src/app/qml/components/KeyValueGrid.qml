@@ -7,13 +7,13 @@ import DrStein
 
 GridLayout {
     id: grid
-    property var rows: []        // [{key, value, mono}]
+    property var pairs: []       // [{key, value, mono}]; not "rows", which is GridLayout's own
     property int fontSize: Theme.fontSmall
     columns: 2
     columnSpacing: 14
     rowSpacing: 4
     Repeater {
-        model: grid.rows
+        model: grid.pairs
         delegate: Item {
             id: keyCell
             required property var modelData
@@ -27,7 +27,7 @@ GridLayout {
         }
     }
     Repeater {
-        model: grid.rows
+        model: grid.pairs
         delegate: Text {
             required property var modelData
             required property int index

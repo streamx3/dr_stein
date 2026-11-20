@@ -440,7 +440,7 @@ Item {
                 KeyValueGrid {
                     Layout.fillWidth: true
                     fontSize: Theme.fontTiny
-                    rows: [{ key: "mtime", value: view.browser.mtimeText, mono: false }, { key: "crtime", value: view.browser.crtimeText, mono: false }, { key: "SHA-256", value: view.browser.hashText, mono: true }]
+                    pairs: [{ key: "mtime", value: view.browser.mtimeText, mono: false }, { key: "crtime", value: view.browser.crtimeText, mono: false }, { key: "SHA-256", value: view.browser.hashText, mono: true }]
                 }
                 RowLayout {
                     Layout.fillWidth: true

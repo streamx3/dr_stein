@@ -68,7 +68,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.preferredHeight: window.chromeMetrics.lightsCenterY !== undefined ? Math.max(implicitHeight, 2 * window.chromeMetrics.lightsCenterY) : implicitHeight
             leftInsetOverride: window.chromeMetrics.leftInset !== undefined ? window.chromeMetrics.leftInset : -1
-            window: window
+            hostWindow: window
             customChrome: window.customChrome
             onOpenSettings: settingsDialog.open()
             onOpenMounts: mountsDialog.open()
@@ -204,7 +204,7 @@ ApplicationWindow {
         }
     }
 
-    FrameResizer { visible: window.framelessChrome; window: window; z: 50 }
+    FrameResizer { visible: window.framelessChrome; hostWindow: window; z: 50 }
 
     // Dialogs.
     PassphraseDialog { id: passphraseDialog }
